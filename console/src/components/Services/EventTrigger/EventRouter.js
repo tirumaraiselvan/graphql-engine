@@ -9,14 +9,17 @@ import {
   addTriggerConnector,
   processedEventsConnector,
   pendingEventsConnector,
+  runningEventsConnector,
   eventHeaderConnector,
   settingsConnector,
+  streamingLogsConnector,
 } from '.';
 
 import {
   loadTriggers,
   loadProcessedEvents,
   loadPendingEvents,
+  loadRunningEvents,
 } from '../EventTrigger/EventActions';
 
 const makeEventRouter = (
@@ -26,6 +29,7 @@ const makeEventRouter = (
   requireSchema,
   requireProcessedEvents,
   requirePendingEvents,
+  requireRunningEvents,
   migrationRedirects
 ) => {
   return (
@@ -49,8 +53,17 @@ const makeEventRouter = (
           onEnter={composeOnEnterHooks([requirePendingEvents])}
         />
         <Route
+          path="triggers/:trigger/running"
+          component={runningEventsConnector(connect)}
+          onEnter={composeOnEnterHooks([requireRunningEvents])}
+        />
+        <Route
           path="triggers/:trigger/settings"
           component={settingsConnector(connect)}
+        />
+        <Route
+          path="triggers/:trigger/logs"
+          component={streamingLogsConnector(connect)}
         />
       </Route>
       <Route
@@ -95,7 +108,9 @@ const eventRouter = (connect, store, composeOnEnterHooks) => {
       cb();
       return;
     }
-    Promise.all([store.dispatch(loadProcessedEvents())]).then(
+    Promise.all([
+      store.dispatch(loadProcessedEvents(nextState.params.trigger)),
+    ]).then(
       () => {
         cb();
       },
@@ -114,7 +129,30 @@ const eventRouter = (connect, store, composeOnEnterHooks) => {
       cb();
       return;
     }
-    Promise.all([store.dispatch(loadPendingEvents())]).then(
+    Promise.all([
+      store.dispatch(loadPendingEvents(nextState.params.trigger)),
+    ]).then(
+      () => {
+        cb();
+      },
+      () => {
+        // alert('Could not load schema.');
+        replaceState(globals.urlPrefix);
+        cb();
+      }
+    );
+  };
+  const requireRunningEvents = (nextState, replaceState, cb) => {
+    const {
+      triggers: { runningEvents },
+    } = store.getState();
+    if (runningEvents.length) {
+      cb();
+      return;
+    }
+    Promise.all([
+      store.dispatch(loadRunningEvents(nextState.params.trigger)),
+    ]).then(
       () => {
         cb();
       },
@@ -148,6 +186,7 @@ const eventRouter = (connect, store, composeOnEnterHooks) => {
       requireSchema,
       requireProcessedEvents,
       requirePendingEvents,
+      requireRunningEvents,
       migrationRedirects,
       consoleModeRedirects
     ),

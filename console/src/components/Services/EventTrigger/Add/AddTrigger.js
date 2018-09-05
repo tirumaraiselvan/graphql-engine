@@ -257,11 +257,13 @@ class AddTrigger extends Component {
               >
                 <option value="">Select table</option>
                 {tableListBySchema.map(t => {
-                  return (
-                    <option key={t.table_name} value={t.table_name}>
-                      {t.table_name}
-                    </option>
-                  );
+                  if (t.detail.table_type === 'BASE TABLE') {
+                    return (
+                      <option key={t.table_name} value={t.table_name}>
+                        {t.table_name}
+                      </option>
+                    );
+                  }
                 })}
               </select>
               <hr />
@@ -463,7 +465,7 @@ class AddTrigger extends Component {
                           styles.add_mar_right + ' ' + styles.retryLabel
                         }
                       >
-                        Interval Seconds
+                        Retry Interval in seconds
                       </label>
                       <input
                         onChange={e => {

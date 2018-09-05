@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell     #-}
 
 module Hasura.Events.Lib
   ( initEventEngineCtx
@@ -15,6 +16,9 @@ import           Control.Concurrent            (threadDelay)
 import           Control.Concurrent.Async      (async, waitAny)
 import           Control.Concurrent.STM.TVar
 import           Control.Monad.STM             (STM, atomically, retry)
+import           Data.Aeson
+import           Data.Aeson.Casing
+import           Data.Aeson.TH
 import           Data.Either                   (isLeft)
 import           Data.Has
 import           Data.Int                      (Int64)
@@ -26,11 +30,11 @@ import           Hasura.SQL.Types
 
 import qualified Control.Concurrent.STM.TQueue as TQ
 import qualified Control.Retry                 as R
-import qualified Data.Aeson                    as J
 import qualified Data.ByteString.Lazy          as B
 import qualified Data.HashMap.Strict           as M
 import qualified Data.TByteString              as TBS
 import qualified Data.Text                     as T
+import qualified Data.Time.Clock               as Time
 import qualified Database.PG.Query             as Q
 import qualified Hasura.GraphQL.Schema         as GS
 import qualified Hasura.Logging                as L
@@ -39,41 +43,62 @@ import qualified Network.Wreq                  as W
 
 
 type CacheRef = IORef (SchemaCache, GS.GCtxMap)
+type UUID = T.Text
 
 newtype EventInternalErr
   = EventInternalErr QErr
   deriving (Show, Eq)
 
 instance L.ToEngineLog EventInternalErr where
-  toEngineLog (EventInternalErr qerr) = (L.LevelError, "event-trigger", J.toJSON qerr )
+  toEngineLog (EventInternalErr qerr) = (L.LevelError, "event-trigger", toJSON qerr )
+
+data TriggerMeta
+  = TriggerMeta
+  { tmId   :: TriggerId
+  , tmName :: TriggerName
+  } deriving (Show, Eq)
+
+$(deriveJSON (aesonDrop 2 snakeCase){omitNothingFields=True} ''TriggerMeta)
 
 data Event
   = Event
-  { eId          :: UUID
-  , eTable       :: QualifiedTable
-  , eTriggerName :: TriggerName
-  , ePayload     :: J.Value
+  { eId        :: UUID
+  , eTable     :: QualifiedTable
+  , eTrigger   :: TriggerMeta
+  , eEvent     :: Value
   -- , eDelivered   :: Bool
   -- , eError       :: Bool
-  , eTries       :: Int64
-  -- , eCreatedAt   :: UTCTime
-  }
+  , eTries     :: Int64
+  , eCreatedAt :: Time.UTCTime
+  } deriving (Show, Eq)
 
-type UUID = T.Text
+instance ToJSON Event where
+  toJSON (Event eid (QualifiedTable sn tn) trigger event _ created)=
+    object [ "id" .= eid
+           , "table"  .= object [ "schema" .= sn
+                                , "name"  .= tn
+                                ]
+           , "trigger" .= trigger
+           , "event" .= event
+           , "created_at" .= created
+           ]
+
+$(deriveFromJSON (aesonDrop 1 snakeCase){omitNothingFields=True} ''Event)
 
 data Invocation
   = Invocation
   { iEventId  :: UUID
   , iStatus   :: Int64
+  , iRequest  :: Value
   , iResponse :: TBS.TByteString
   }
 
 data EventEngineCtx
   = EventEngineCtx
-  { eeCtxEventQueue         :: TQ.TQueue Event
-  , eeCtxEventThreads       :: TVar Int
-  , eeCtxMaxEventThreads    :: Int
-  , eeCtxPollingIntervalSec :: Int
+  { _eeCtxEventQueue         :: TQ.TQueue Event
+  , _eeCtxEventThreads       :: TVar Int
+  , _eeCtxMaxEventThreads    :: Int
+  , _eeCtxPollingIntervalSec :: Int
   }
 
 defaultMaxEventThreads :: Int
@@ -188,6 +213,8 @@ tryWebhook pool e _ = do
     Nothing -> return $ Left $ HOther "table or event-trigger not found"
     Just et -> do
       let webhook = etiWebhook et
+          createdAt = eCreatedAt e
+          eventId =  eId e
       eeCtx <- asks getter
 
       -- wait for counter and then increment beforing making http
@@ -197,7 +224,7 @@ tryWebhook pool e _ = do
         if countThreads >= maxT
           then retry
           else modifyTVar' c (+1)
-      eitherResp <- runExceptT $ runHTTP W.defaults $ mkAnyHTTPPost (T.unpack webhook) (Just $ ePayload e)
+      eitherResp <- runExceptT $ runHTTP W.defaults (mkAnyHTTPPost (T.unpack webhook) (Just $ toJSON e)) (Just (ExtraContext createdAt eventId))
 
       --decrement counter once http is done
       liftIO $ atomically $ do
@@ -207,11 +234,11 @@ tryWebhook pool e _ = do
       finally <- liftIO $ runExceptT $ case eitherResp of
         Left err ->
           case err of
-            HClient excp -> runFailureQ pool $ Invocation (eId e) 1000 (TBS.fromLBS $ J.encode $ show excp)
-            HParse _ detail -> runFailureQ pool $ Invocation (eId e) 1001 (TBS.fromLBS $ J.encode detail)
-            HStatus status detail -> runFailureQ pool $ Invocation (eId e) (fromIntegral $ N.statusCode status) detail
-            HOther detail -> runFailureQ pool $ Invocation (eId e) 500 (TBS.fromLBS $ J.encode detail)
-        Right resp -> runSuccessQ pool e $ Invocation (eId e) 200 (TBS.fromLBS resp)
+            HClient excp -> runFailureQ pool $ Invocation (eId e) 1000 (toJSON e) (TBS.fromLBS $ encode $ show excp)
+            HParse _ detail -> runFailureQ pool $ Invocation (eId e) 1001 (toJSON e) (TBS.fromLBS $ encode detail)
+            HStatus status detail -> runFailureQ pool $ Invocation (eId e) (fromIntegral $ N.statusCode status) (toJSON e) detail
+            HOther detail -> runFailureQ pool $ Invocation (eId e) 500 (toJSON e) (TBS.fromLBS $ encode detail)
+        Right resp -> runSuccessQ pool e $ Invocation (eId e) 200 (toJSON e) (TBS.fromLBS resp)
       case finally of
         Left err -> liftIO $ logger $ L.toEngineLog $ EventInternalErr err
         Right _  -> return ()
@@ -220,7 +247,7 @@ tryWebhook pool e _ = do
 getEventTriggerInfoFromEvent :: SchemaCache -> Event -> Maybe EventTriggerInfo
 getEventTriggerInfoFromEvent sc e = let table = eTable e
                                         tableInfo = M.lookup table $ scTables sc
-                                    in M.lookup (eTriggerName e) =<< (tiEventTriggerInfoMap <$> tableInfo)
+                                    in M.lookup ( tmName $ eTrigger e) =<< (tiEventTriggerInfoMap <$> tableInfo)
 
 fetchEvents :: Q.TxE QErr [Event]
 fetchEvents =
@@ -228,16 +255,16 @@ fetchEvents =
       UPDATE hdb_catalog.event_log
       SET locked = 't'
       WHERE id IN ( select id from hdb_catalog.event_log where delivered ='f' and error = 'f' and locked = 'f' LIMIT 100 )
-      RETURNING id, schema_name, table_name, trigger_name, payload::json, tries
+      RETURNING id, schema_name, table_name, trigger_id, trigger_name, payload::json, tries, created_at
       |] () True
-  where uncurryEvent (id', sn, tn, trn, Q.AltJ payload, tries) = Event id' (QualifiedTable sn tn) trn payload tries
+  where uncurryEvent (id', sn, tn, trid, trn, Q.AltJ payload, tries, created) = Event id' (QualifiedTable sn tn) (TriggerMeta trid trn) payload tries created
 
 insertInvocation :: Invocation -> Q.TxE QErr ()
 insertInvocation invo = do
   Q.unitQE defaultTxErrorHandler [Q.sql|
-          INSERT INTO hdb_catalog.event_invocation_logs (event_id, status, response)
-          VALUES ($1, $2, $3)
-          |] (iEventId invo, iStatus invo, Q.AltJ $ J.toJSON $ iResponse invo) True
+          INSERT INTO hdb_catalog.event_invocation_logs (event_id, status, request, response)
+          VALUES ($1, $2, $3, $4)
+          |] (iEventId invo, iStatus invo, Q.AltJ $ toJSON $ iRequest invo, Q.AltJ $ toJSON $ iResponse invo) True
   Q.unitQE defaultTxErrorHandler [Q.sql|
           UPDATE hdb_catalog.event_log
           SET tries = tries + 1
@@ -260,13 +287,13 @@ markError e =
           WHERE id = $1
           |] (Identity $ eId e) True
 
-lockEvent :: Event -> Q.TxE QErr ()
-lockEvent e =
-  Q.unitQE defaultTxErrorHandler [Q.sql|
-          UPDATE hdb_catalog.event_log
-          SET locked = 't'
-          WHERE id = $1
-          |] (Identity $ eId e) True
+-- lockEvent :: Event -> Q.TxE QErr ()
+-- lockEvent e =
+--   Q.unitQE defaultTxErrorHandler [Q.sql|
+--           UPDATE hdb_catalog.event_log
+--           SET locked = 't'
+--           WHERE id = $1
+--           |] (Identity $ eId e) True
 
 unlockEvent :: Event -> Q.TxE QErr ()
 unlockEvent e =
@@ -294,8 +321,8 @@ runSuccessQ pool e invo =  Q.runTx pool (Q.RepeatableRead, Just Q.ReadWrite) $ d
 runErrorQ :: Q.PGPool -> Event -> ExceptT QErr IO ()
 runErrorQ pool  e = Q.runTx pool (Q.RepeatableRead, Just Q.ReadWrite) $ markError e
 
-runLockQ :: Q.PGPool -> Event -> ExceptT QErr IO ()
-runLockQ pool e = Q.runTx pool (Q.RepeatableRead, Just Q.ReadWrite) $ lockEvent e
+-- runLockQ :: Q.PGPool -> Event -> ExceptT QErr IO ()
+-- runLockQ pool e = Q.runTx pool (Q.RepeatableRead, Just Q.ReadWrite) $ lockEvent e
 
 runUnlockQ :: Q.PGPool -> Event -> ExceptT QErr IO ()
 runUnlockQ pool e = Q.runTx pool (Q.RepeatableRead, Just Q.ReadWrite) $ unlockEvent e
