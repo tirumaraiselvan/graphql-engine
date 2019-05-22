@@ -1,0 +1,34 @@
+type: bulk
+args:
+
+# To model this:
+
+# query {
+#   profiles {
+#     id
+#     message {
+#       id
+#       msg
+#     }
+#   }
+# }
+
+#Profile table
+- type: run_sql
+  args:
+    sql: |
+      create table "profile"(
+          id serial primary key,
+          name text unique
+      );
+- type: track_table
+  args:
+    schema: public
+    name: profile
+
+- type: add_remote_schema
+  args:
+    name: hello
+    comment: 'i am a remote schema'
+    definition:
+      url: http://localhost:5000/graphql-server

@@ -1,0 +1,10 @@
+url: /v1/query
+status: 200
+response: []
+query:
+  type: select
+  args:
+    table: profile
+    columns:
+      - id
+      - name

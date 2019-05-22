@@ -573,3 +573,13 @@ class TestCreatePermission(DefaultTestQueries):
     @classmethod
     def dir(cls):
         return "queries/v1/permissions"
+
+
+class TestV1SelectRemotes(DefaultTestSelectQueries):
+
+    def test_select_query_author(self, hge_ctx):
+        check_query_f(hge_ctx, self.dir() + '/select_profile_messages.yaml')
+
+    @classmethod
+    def dir(cls):
+        return "queries/v1/select/remotes"
