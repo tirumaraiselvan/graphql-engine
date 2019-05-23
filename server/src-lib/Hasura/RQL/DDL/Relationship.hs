@@ -162,7 +162,7 @@ runCreateRemoteRelationship createRemoteRelationship = do
     (do validation <-
           getCreateRemoteRelationshipValidation createRemoteRelationship
         case validation of
-          Left err -> throw400 RemoteSchemaError (T.pack (show err))
+          Left err -> trace (show err) (throw400 RemoteSchemaError (T.pack (show err)))
           Right {} -> pure successMsg)
 
 runCreateObjRel

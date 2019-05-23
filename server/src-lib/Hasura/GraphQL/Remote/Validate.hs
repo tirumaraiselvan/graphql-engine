@@ -26,7 +26,7 @@ import qualified Language.GraphQL.Draft.Syntax as G
 
 -- | An error validating the remote relationship.
 data ValidationError
-  = CouldntFindRemoteField G.Name
+  = CouldntFindRemoteField G.Name VT.ObjTyInfo
   | CouldntFindNamespace G.Name
   | CouldntFindTypeForNamespace G.Name
   | InvalidTypeForNamespace G.Name VT.TypeInfo
@@ -65,17 +65,17 @@ validateRelationship createRemoteRelationship gctx = do
         (FieldNotFoundInRemoteSchema
            (createRemoteRelationshipRemoteField createRemoteRelationship))
     RemoteType {} -> pure ()
-  undefined
 
 -- | Lookup the field in the schema.
 lookupField ::
      G.Name
   -> VT.ObjTyInfo
   -> Either ValidationError VT.ObjFldInfo
-lookupField name =
-  maybe (Left (CouldntFindRemoteField name)) pure .
-  HM.lookup name .
-  VT._otiFields
+lookupField name objFldInfo = viaObject objFldInfo
+  where
+    viaObject =
+      maybe (Left (CouldntFindRemoteField name objFldInfo)) pure .
+      HM.lookup name . VT._otiFields
 
 -- | Lookup the field in the schema.
 lookupNamespace ::
