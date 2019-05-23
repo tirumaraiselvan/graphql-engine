@@ -17,18 +17,24 @@ args:
 - type: run_sql
   args:
     sql: |
-      create table "profile"(
+      create table profiles (
           id serial primary key,
           name text unique
       );
+- type: run_sql
+  args:
+    sql: |
+      insert into profiles (name) values
+      ( 'alice' ),
+      ( 'bob' )
 - type: track_table
   args:
     schema: public
-    name: profile
+    name: profiles
 
 - type: add_remote_schema
   args:
-    name: hello
-    comment: 'i am a remote schema'
+    name: my-remote-schema
     definition:
-      url: http://localhost:5000/graphql-server
+      url: http://localhost:5000/messages-graphql
+      forward_client_headers: false
