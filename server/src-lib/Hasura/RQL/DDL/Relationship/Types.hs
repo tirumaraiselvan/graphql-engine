@@ -110,7 +110,7 @@ data CreateRemoteRelationship =
     , createRemoteRelationshipTable :: QualifiedTable
     , createRemoteRelationshipRemoteSchema :: RemoteSchemaName
     , createRemoteRelationshipRemoteField :: FieldName
-    , createRemoteRelationshipHasuraFields :: Set FieldName
+    , createRemoteRelationshipHasuraFields :: Set PGCol
     , createRemoteRelationshipRemoteArguments :: RemoteArguments
     }
   deriving (Show, Eq, Lift)
