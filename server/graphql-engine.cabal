@@ -267,6 +267,7 @@ library
                      , Migrate
 
                      , Hasura.GraphQL.Remote.Input
+                     , Hasura.GraphQL.Remote.Validate
 
   other-modules:       Hasura.Server.Auth.JWT.Internal
                      , Hasura.Server.Auth.JWT.Logging

@@ -11,28 +11,31 @@ module Hasura.RQL.DDL.Relationship
   , runCreateArrRel
   , runDropRel
   , runSetRelComment
+  , runCreateRemoteRelationship
   , module Hasura.RQL.DDL.Relationship.Types
   )
 where
 
-import qualified Database.PG.Query                 as Q
+import qualified Database.PG.Query as Q
+import           Debug.Trace
+import           Hasura.GraphQL.Remote.Validate
 
 import           Hasura.EncJSON
 import           Hasura.Prelude
 import           Hasura.RQL.DDL.Deps
-import           Hasura.RQL.DDL.Permission         (purgePerm)
+import           Hasura.RQL.DDL.Permission (purgePerm)
 import           Hasura.RQL.DDL.Relationship.Types
 import           Hasura.RQL.Types
 import           Hasura.RQL.Types.Catalog
 import           Hasura.SQL.Types
 
 import           Data.Aeson.Types
-import qualified Data.HashMap.Strict               as HM
-import qualified Data.HashSet                      as HS
-import qualified Data.Map.Strict                   as M
-import qualified Data.Text                         as T
-import           Data.Tuple                        (swap)
-import           Instances.TH.Lift                 ()
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import qualified Data.Map.Strict as M
+import qualified Data.Text as T
+import           Data.Tuple (swap)
+import           Instances.TH.Lift ()
 
 validateManualConfig
   :: (QErrM m, CacheRM m)
@@ -150,6 +153,17 @@ createObjRelP2
 createObjRelP2 (WithTable qt rd) = do
   objRelP2 qt rd
   return successMsg
+
+runCreateRemoteRelationship ::
+     (QErrM f, CacheRM f) => CreateRemoteRelationship -> f EncJSON
+runCreateRemoteRelationship createRemoteRelationship = do
+  trace
+    ("Stub: runCreateRemoteRelationship: " ++ show createRemoteRelationship)
+    (do validation <-
+          getCreateRemoteRelationshipValidation createRemoteRelationship
+        case validation of
+          Left err -> throw400 RemoteSchemaError (T.pack (show err))
+          Right {} -> pure successMsg)
 
 runCreateObjRel
   :: (QErrM m, CacheRWM m, MonadTx m , UserInfoM m)

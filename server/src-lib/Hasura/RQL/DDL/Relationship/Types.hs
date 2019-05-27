@@ -13,6 +13,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import           Instances.TH.Lift ()
+import qualified Language.GraphQL.Draft.Syntax as G
 import           Language.Haskell.TH.Syntax (Lift)
 
 data RelDef a
@@ -109,9 +110,10 @@ data CreateRemoteRelationship =
     { createRemoteRelationshipName :: RemoteRelationshipName
     , createRemoteRelationshipTable :: QualifiedTable
     , createRemoteRelationshipRemoteSchema :: RemoteSchemaName
-    , createRemoteRelationshipRemoteField :: FieldName
+    , createRemoteRelationshipRemoteField :: G.Name
     , createRemoteRelationshipHasuraFields :: Set PGCol
     , createRemoteRelationshipRemoteArguments :: RemoteArguments
+    , createRemoteRelationshipNamespace :: Maybe G.Name
     }
   deriving (Show, Eq, Lift)
 
