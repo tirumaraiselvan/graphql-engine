@@ -44,9 +44,9 @@ args:
     name: author_obj_rel_manual
     table: profiles
     hasura_fields:
-      - profile_id
+      - id
     remote_schema: my-remote-schema
     remote_field: messages
     remote_arguments:
       where:
-        _eq: "$profile_id"
+        _eq: "$id"
