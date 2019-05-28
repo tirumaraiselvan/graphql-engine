@@ -11,6 +11,8 @@ class TestTopLevelMixedFields:
         print("In setup method")
         st_code, resp = hge_ctx.v1q_f('queries/remote_schemas/setup_mixed.yaml')
         assert st_code == 200, resp
+        st_code, resp = hge_ctx.v1q_f('queries/remote_schemas/setup_remote_relationship.yaml')
+        assert st_code == 200, resp
         yield
         st_code, resp = hge_ctx.v1q_f('queries/remote_schemas/teardown_mixed.yaml')
         assert st_code == 200, resp
