@@ -13,6 +13,7 @@ module Hasura.GraphQL.Remote.Validate
 import qualified Data.HashMap.Strict as HM
 import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Validation
+import           Debug.Trace
 import qualified Hasura.GraphQL.Context as GC
 import           Hasura.GraphQL.Remote.Input
 import           Hasura.GraphQL.Schema
@@ -33,6 +34,8 @@ data ValidationError
   | FieldNotFoundInRemoteSchema G.Name
   deriving (Show, Eq)
 
+-- perhaps this old method is not the right way to find relationships now?
+
 -- | Get a validation for the remote relationship proposal.
 getCreateRemoteRelationshipValidation ::
      (QErrM m, CacheRM m)
@@ -40,10 +43,11 @@ getCreateRemoteRelationshipValidation ::
   -> m (Either ValidationError ())
 getCreateRemoteRelationshipValidation createRemoteRelationship = do
   schemaCache <- askSchemaCache
-  pure
-    (validateRelationship
-       createRemoteRelationship
-       (scDefaultRemoteGCtx schemaCache))
+  (pure
+     (validateRelationship
+        createRemoteRelationship
+        (scDefaultRemoteGCtx schemaCache)))
+
 
 -- | Validate a remote relationship given a context.
 validateRelationship ::
@@ -51,14 +55,10 @@ validateRelationship ::
   -> GC.GCtx
   -> Either ValidationError ()
 validateRelationship createRemoteRelationship gctx = do
-  objTyInfo <-
-    lookupNamespace
-      (createRemoteRelationshipNamespace createRemoteRelationship)
-      gctx
   objFldInfo <-
     lookupField
       (createRemoteRelationshipRemoteField createRemoteRelationship)
-      objTyInfo
+      (trace ("(GS._gQueryRoot gctx)=" ++ show ((GS._gQueryRoot gctx))) (GS._gQueryRoot gctx))
   case VT._fiLoc objFldInfo of
     HasuraType ->
       Left
@@ -75,25 +75,8 @@ lookupField name objFldInfo = viaObject objFldInfo
   where
     viaObject =
       maybe (Left (CouldntFindRemoteField name objFldInfo)) pure .
-      HM.lookup name . VT._otiFields
-
--- | Lookup the field in the schema.
-lookupNamespace ::
-     Maybe G.Name
-  -> GC.GCtx
-  -> Either ValidationError VT.ObjTyInfo
-lookupNamespace = maybe viaQueryRoot viaGivenNamespace
-  where
-    viaQueryRoot = pure . GS._gQueryRoot
-    viaGivenNamespace namespace gctx =
-      case HM.lookup namespace (VT._otiFields (GS._gQueryRoot gctx)) of
-        Nothing -> Left (CouldntFindNamespace namespace)
-        Just objFldInfo ->
-          case HM.lookup (VT.getBaseTy (VT._fiTy objFldInfo)) (GC._gTypes gctx) of
-            Just (VT.TIObj tyObjInfo) -> pure tyObjInfo
-            Just typeInfo ->
-              Left (InvalidTypeForNamespace namespace typeInfo)
-            Nothing -> Left (CouldntFindTypeForNamespace namespace)
+      HM.lookup name .
+      VT._otiFields
 
 -- | Validate remote input arguments against the remote schema.
 validateRemoteArguments ::
