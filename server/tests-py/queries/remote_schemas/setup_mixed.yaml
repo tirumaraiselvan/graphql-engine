@@ -39,14 +39,3 @@ args:
       url: http://localhost:5000/messages-graphql
       forward_client_headers: false
 
-- type: create_remote_relationship
-  args:
-    name: author_obj_rel_manual
-    table: profiles
-    hasura_fields:
-      - id
-    remote_schema: my-remote-schema
-    remote_field: messages
-    remote_arguments:
-      where:
-        _eq: "$id"
