@@ -111,7 +111,7 @@ data CreateRemoteRelationship =
     , createRemoteRelationshipTable :: QualifiedTable
     , createRemoteRelationshipRemoteSchema :: RemoteSchemaName
     , createRemoteRelationshipRemoteField :: G.Name
-    , createRemoteRelationshipHasuraFields :: Set PGCol
+    , createRemoteRelationshipHasuraFields :: Set FieldName
     , createRemoteRelationshipRemoteArguments :: RemoteArguments
     , createRemoteRelationshipNamespace :: Maybe G.Name
     }

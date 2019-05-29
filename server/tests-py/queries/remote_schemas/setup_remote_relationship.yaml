@@ -4,8 +4,10 @@ args:
   table: profiles
   hasura_fields:
     - id
+    - name
   remote_schema: my-remote-schema
-  remote_field: messages
+  remote_field: message
   remote_arguments:
-    where:
-      _eq: "$id"
+    id: "$id"
+    # where:
+    #   _eq: "$id"

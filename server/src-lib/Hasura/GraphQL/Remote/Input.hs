@@ -5,6 +5,7 @@
 
 module Hasura.GraphQL.Remote.Input
   ( substituteVariables
+  , remoteArgumentsToMap
   , SubstituteError(..)
   , RemoteArguments(..)
   ) where
@@ -72,6 +73,13 @@ substituteVariables values = traverse (traverse go)
           fmap (GraphQL.VCList . GraphQL.ListValueG) (traverse go listValue)
         GraphQL.VObject (GraphQL.ObjectValueG objectValue) ->
           fmap (GraphQL.VCObject . GraphQL.ObjectValueG) (traverse (traverse go) objectValue)
+
+-- | Make a map out of remote arguments.
+remoteArgumentsToMap :: RemoteArguments -> HashMap GraphQL.Name GraphQL.Value
+remoteArgumentsToMap =
+  HM.fromList .
+  map (\field -> (GraphQL._ofName field, GraphQL._ofValue field)) .
+  getRemoteArguments
 
 --------------------------------------------------------------------------------
 -- Parsing GraphQL input arguments from JSON
