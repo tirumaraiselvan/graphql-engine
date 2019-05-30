@@ -39,6 +39,8 @@ data ValidationError
   | InvalidType
   | InvalidVariable G.Variable (HashMap G.Variable FieldInfo)
   | NullNotAllowedHere
+  | InvalidForeignTable !RelInfo
+  | ForeignRelationshipsNotAllowedInRemoteVariable !RelInfo
   deriving (Show, Eq)
 
 -- | Get a validation for the remote relationship proposal.
@@ -90,11 +92,13 @@ validateRelationship createRemoteRelationship gctx tables = do
             (show objFldInfo)
             (toEither
                (validateRemoteArguments
+                  tables
                   (VT._fiParams objFldInfo)
                   (remoteArgumentsToMap
                      (createRemoteRelationshipRemoteArguments
                         createRemoteRelationship))
-                  (HM.fromList (map (first fieldNameToVariable) (HM.toList fieldInfos)))))
+                  (HM.fromList
+                     (map (first fieldNameToVariable) (HM.toList fieldInfos)))))
   where
     tableName = createRemoteRelationshipTable createRemoteRelationship
 
@@ -116,11 +120,12 @@ lookupField name objFldInfo = viaObject objFldInfo
 
 -- | Validate remote input arguments against the remote schema.
 validateRemoteArguments ::
-     HashMap G.Name InpValInfo
+     HashMap QualifiedTable TableInfo
+  -> HashMap G.Name InpValInfo
   -> HashMap G.Name G.Value
   -> HashMap G.Variable FieldInfo
   -> Validation (NonEmpty ValidationError) ()
-validateRemoteArguments expectedArguments providedArguments permittedVariables = do
+validateRemoteArguments tables expectedArguments providedArguments permittedVariables = do
   traverse validateProvided (HM.toList providedArguments)
   traverse validateExpected (HM.toList expectedArguments)
   pure ()
@@ -128,7 +133,12 @@ validateRemoteArguments expectedArguments providedArguments permittedVariables =
     validateProvided (providedKey, providedValue) =
       case HM.lookup providedKey expectedArguments of
         Nothing -> Failure (pure (NoSuchArgumentForRemote providedKey))
-        Just expectedType -> validateType permittedVariables providedValue (_iviType expectedType)
+        Just expectedType ->
+          validateType
+            tables
+            permittedVariables
+            providedValue
+            (_iviType expectedType)
     validateExpected (expectedKey, expectedInpValInfo) =
       case _iviDefVal expectedInpValInfo of
         Just {} -> pure ()
@@ -139,27 +149,29 @@ validateRemoteArguments expectedArguments providedArguments permittedVariables =
 
 -- | Validate a value against a type.
 validateType ::
-     HashMap G.Variable FieldInfo
+     HashMap QualifiedTable TableInfo
+  -> HashMap G.Variable FieldInfo
   -> G.Value
   -> G.GType
   -> Validation (NonEmpty ValidationError) ()
-validateType permittedVariables value (gtypeToEither -> expectedType) =
+validateType tables permittedVariables value (gtypeToEither -> expectedType) =
   bindValidation
-    (valueType permittedVariables value)
+    (valueType tables permittedVariables value)
     (\actualType ->
        when (actualType /= expectedType) (Failure (pure InvalidType)))
 
 -- | Produce the type of a value.
 valueType ::
-     HashMap G.Variable FieldInfo
+     HashMap QualifiedTable TableInfo
+  -> HashMap G.Variable FieldInfo
   -> G.Value
   -> Validation (NonEmpty ValidationError) (Either G.NamedType G.ListType)
-valueType permittedVariables =
+valueType tables permittedVariables =
   \case
     G.VVariable variable ->
       case HM.lookup variable permittedVariables of
         Nothing -> Failure (pure (InvalidVariable variable permittedVariables))
-        Just fieldInfo -> pure (Left (fieldInfoToNamedType fieldInfo))
+        Just fieldInfo -> fmap Left (fieldInfoToNamedType tables fieldInfo)
     G.VInt{} -> pure (Left (mkScalarTy PGInteger))
     G.VFloat{} -> pure (Left (mkScalarTy PGFloat))
     G.VBoolean{} -> pure (Left (mkScalarTy PGBoolean))
@@ -167,11 +179,19 @@ valueType permittedVariables =
     G.VString{} -> pure (Left (mkScalarTy PGText))
 
 -- | Convert a field info to a named type, if possible.
-fieldInfoToNamedType :: FieldInfo -> G.NamedType
-fieldInfoToNamedType =
+fieldInfoToNamedType ::
+     HashMap QualifiedTable TableInfo
+  -> FieldInfo
+  -> Validation (NonEmpty ValidationError) G.NamedType
+fieldInfoToNamedType tables =
   \case
-    FIColumn pgColInfo -> mkScalarTy (pgiType pgColInfo)
-    FIRelationship _ -> error "TODO: FIRelationship"
+    FIColumn pgColInfo -> pure (mkScalarTy (pgiType pgColInfo))
+    FIRelationship relInfo ->
+      case HM.lookup (riRTable relInfo) tables of
+        Nothing -> Failure (pure (InvalidForeignTable relInfo))
+        Just _tableInfo ->
+          Failure
+            (pure (ForeignRelationshipsNotAllowedInRemoteVariable relInfo))
 
 -- | Reify the constructors to an Either.
 gtypeToEither :: G.GType -> Either G.NamedType G.ListType
