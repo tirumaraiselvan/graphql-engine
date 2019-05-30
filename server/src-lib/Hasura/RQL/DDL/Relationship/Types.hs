@@ -113,7 +113,6 @@ data CreateRemoteRelationship =
     , createRemoteRelationshipRemoteField :: G.Name
     , createRemoteRelationshipHasuraFields :: Set FieldName
     , createRemoteRelationshipRemoteArguments :: RemoteArguments
-    , createRemoteRelationshipNamespace :: Maybe G.Name
     }
   deriving (Show, Eq, Lift)
 

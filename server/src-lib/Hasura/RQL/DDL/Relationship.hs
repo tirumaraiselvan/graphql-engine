@@ -36,6 +36,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import           Data.Tuple (swap)
 import           Instances.TH.Lift ()
+import qualified Language.GraphQL.Draft.Syntax as G
 
 validateManualConfig
   :: (QErrM m, CacheRM m)
@@ -155,7 +156,7 @@ createObjRelP2 (WithTable qt rd) = do
   return successMsg
 
 runCreateRemoteRelationship ::
-     (QErrM f, CacheRM f) => CreateRemoteRelationship -> f EncJSON
+     (MonadTx f, CacheRM f) => CreateRemoteRelationship -> f EncJSON
 runCreateRemoteRelationship createRemoteRelationship = do
   trace
     ("Stub: runCreateRemoteRelationship: " ++ show createRemoteRelationship)
@@ -163,7 +164,26 @@ runCreateRemoteRelationship createRemoteRelationship = do
           getCreateRemoteRelationshipValidation createRemoteRelationship
         case validation of
           Left err -> trace (show err) (throw400 RemoteSchemaError (T.pack (show err)))
-          Right {} -> pure successMsg)
+          Right {} -> do liftTx (persistCreateRemoteRelationship createRemoteRelationship)
+                         pure successMsg)
+
+persistCreateRemoteRelationship
+  :: CreateRemoteRelationship -> Q.TxE QErr ()
+persistCreateRemoteRelationship createRemoteRelationship =
+  Q.unitQE defaultTxErrorHandler [Q.sql|
+  INSERT INTO hdb_catalog.hdb_remote_relationship
+  (name, table_schema, table_name, remote_schema, remote_field, hasura_fields, remote_arguments)
+  VALUES ($1, $2, $3, $4, $5, $6 :: jsonb, $7 :: jsonb)
+  |]
+  (let QualifiedObject schema_name table_name = createRemoteRelationshipTable createRemoteRelationship
+   in (createRemoteRelationshipName createRemoteRelationship
+      ,schema_name
+      ,table_name
+      ,createRemoteRelationshipRemoteSchema createRemoteRelationship
+      ,G.unName (createRemoteRelationshipRemoteField createRemoteRelationship)
+      ,Q.JSONB (toJSON (createRemoteRelationshipHasuraFields createRemoteRelationship))
+      ,Q.JSONB (toJSON (createRemoteRelationshipRemoteArguments createRemoteRelationship))))
+  True
 
 runCreateObjRel
   :: (QErrM m, CacheRWM m, MonadTx m , UserInfoM m)
