@@ -5,6 +5,7 @@ module Hasura.GraphQL.Execute
   , getExecPlanPartial
 
   , ExecOp(..)
+  , RemotePlanInfo(..)
   , ExecPlanResolved
   , getResolvedExecPlan
   , execRemoteGQ
@@ -15,21 +16,26 @@ module Hasura.GraphQL.Execute
   , EP.dumpPlanCache
   ) where
 
-import           Control.Exception                      (try)
+import           Control.Exception (try)
 import           Control.Lens
+import           Data.Bitraversable
 import           Data.Has
+import           Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
+import           Debug.Trace
 
-import qualified Data.Aeson                             as J
-import qualified Data.ByteString.Lazy                   as BL
-import qualified Data.CaseInsensitive                   as CI
-import qualified Data.HashMap.Strict                    as Map
-import qualified Data.HashSet                           as Set
-import qualified Data.String.Conversions                as CS
-import qualified Data.Text                              as T
-import qualified Language.GraphQL.Draft.Syntax          as G
-import qualified Network.HTTP.Client                    as HTTP
-import qualified Network.HTTP.Types                     as N
-import qualified Network.Wreq                           as Wreq
+import qualified Data.Aeson as J
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.CaseInsensitive as CI
+import qualified Data.HashMap.Strict as Map
+import           Data.Bifunctor.TH
+import qualified Data.HashSet as Set
+import qualified Data.String.Conversions as CS
+import qualified Data.Text as T
+import qualified Language.GraphQL.Draft.Syntax as G
+import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Types as N
+import qualified Network.Wreq as Wreq
 
 import           Hasura.EncJSON
 import           Hasura.GraphQL.Context
@@ -41,37 +47,56 @@ import           Hasura.HTTP
 import           Hasura.Prelude
 import           Hasura.RQL.DDL.Headers
 import           Hasura.RQL.Types
-import           Hasura.Server.Utils                    (bsToTxt, commonClientHeadersIgnored)
+import           Hasura.Server.Utils (bsToTxt, commonClientHeadersIgnored)
 
-import qualified Hasura.GraphQL.Execute.LiveQuery       as EL
-import qualified Hasura.GraphQL.Execute.Plan            as EP
-import qualified Hasura.GraphQL.Execute.Query           as EQ
+import qualified Hasura.GraphQL.Execute.LiveQuery as EL
+import qualified Hasura.GraphQL.Execute.Plan as EP
+import qualified Hasura.GraphQL.Execute.Query as EQ
 
-import qualified Hasura.GraphQL.Resolve                 as GR
-import qualified Hasura.GraphQL.Validate                as VQ
-import qualified Hasura.GraphQL.Validate.Types          as VT
+import qualified Hasura.GraphQL.Resolve as GR
+import qualified Hasura.GraphQL.Validate as VQ
+import qualified Hasura.GraphQL.Validate.Types as VT
 
 -- The current execution plan of a graphql operation, it is
 -- currently, either local pg execution or a remote execution
 --
 -- The 'a' is parameterised so this AST can represent
 -- intermediate passes
-data GQExecPlan a
-  = GExPHasura !a
-  | GExPRemote !RemoteSchemaInfo !G.TypedOperationDefinition
-  deriving (Functor, Foldable, Traversable)
+data GQExecPlan hasura remote
+  = GExPHasura !hasura
+  | GExPRemote !remote
+  | GExPMixed !hasura !(NonEmpty remote)
+deriveBifunctor ''GQExecPlan
+deriveBitraversable ''GQExecPlan
+deriveBifoldable ''GQExecPlan
+
+data RemotePlanInfo =
+  RemotePlanInfo
+    { remotePlanInfoRemoteSchemaInfo :: !RemoteSchemaInfo
+    , remotePlanInfoTypedOperationDefinition :: !G.TypedOperationDefinition
+    }
 
 -- Enforces the current limitation
-assertSameLocationNodes
-  :: (MonadError QErr m) => [VT.TypeLoc] -> m VT.TypeLoc
-assertSameLocationNodes typeLocs =
-  case Set.toList (Set.fromList typeLocs) of
+inferPlanShape
+  :: (MonadError QErr m) => [VT.TypeLoc] -> m (GQExecPlan () RemoteSchemaInfo)
+inferPlanShape typeLocs =
+  case Set.toList (Set.fromList typeLocs)
     -- this shouldn't happen
-    []    -> return VT.HasuraType
-    [loc] -> return loc
-    _     -> throw400 NotSupported msg
-  where
-    msg = "cannot mix top level fields from two different graphql servers"
+        of
+    [] -> return (GExPHasura ())
+    tys ->
+      case NE.nonEmpty
+             (mapMaybe
+                (\case
+                   VT.RemoteType _ rsi -> Just rsi
+                   _ -> Nothing)
+                tys) of
+        Nothing -> pure (GExPHasura ())
+        Just rsis -> if any (== VT.HasuraType) tys
+                        then pure (GExPMixed () rsis)
+                        else case rsis of
+                               rsi :| [] -> pure (GExPRemote rsi)
+                               _ -> throw400 NotSupported "Only one remote supported in this position."
 
 -- TODO: we should fix this function asap
 -- as this will fail when there is a fragment at the top level
@@ -96,7 +121,7 @@ gatherTypeLocs gCtx nodes =
 
 -- This is for when the graphql query is validated
 type ExecPlanPartial
-  = GQExecPlan (GCtx, VQ.RootSelSet, [G.VariableDefinition])
+  = GQExecPlan (GCtx, VQ.RootSelSet, [G.VariableDefinition]) RemotePlanInfo
 
 getExecPlanPartial
   :: (MonadError QErr m)
@@ -118,16 +143,22 @@ getExecPlanPartial userInfo sc enableAL req = do
       -- gather TypeLoc of topLevelNodes
       typeLocs = gatherTypeLocs gCtx topLevelNodes
 
-  -- see if they are all the same
-  typeLoc <- assertSameLocationNodes typeLocs
+  -- infer the type of plan we need
+  typeLoc <- inferPlanShape typeLocs
 
   case typeLoc of
-    VT.HasuraType -> do
-      rootSelSet <- runReaderT (VQ.validateGQ queryParts) gCtx
-      let varDefs = G._todVariableDefinitions $ VQ.qpOpDef queryParts
-      return $ GExPHasura (gCtx, rootSelSet, varDefs)
-    VT.RemoteType _ rsi ->
-      return $ GExPRemote rsi opDef
+    GExPHasura () -> do
+                   rootSelSet <- runReaderT (VQ.validateGQ queryParts) gCtx
+                   let varDefs = G._todVariableDefinitions $ VQ.qpOpDef queryParts
+                   return $ GExPHasura (gCtx, rootSelSet, varDefs)
+    GExPRemote rsi ->
+      return $ GExPRemote (RemotePlanInfo rsi opDef)
+    GExPMixed {} -> do rootSelSet <- runReaderT (VQ.validateGQ queryParts) gCtx
+                       let varDefs = G._todVariableDefinitions $ VQ.qpOpDef queryParts
+                       return $ GExPHasura (gCtx, rootSelSet, varDefs)
+                       trace (show rootSelSet) (pure ())
+
+                       error "TODO: mixed queries!"
   where
     role = userRole userInfo
     gCtxRoleMap = scGCtxMap sc
@@ -153,7 +184,7 @@ data ExecOp
 
 -- The graphql query is resolved into an execution operation
 type ExecPlanResolved
-  = GQExecPlan ExecOp
+  = GQExecPlan ExecOp RemotePlanInfo
 
 getResolvedExecPlan
   :: (MonadError QErr m, MonadIO m)
@@ -187,7 +218,7 @@ getResolvedExecPlan pgExecCtx planCache userInfo sqlGenCtx
     noExistingPlan = do
       req      <- toParsed reqUnparsed
       partialExecPlan <- getExecPlanPartial userInfo sc enableAL req
-      forM partialExecPlan $ \(gCtx, rootSelSet, varDefs) ->
+      flip (biforM partialExecPlan) pure $ \(gCtx, rootSelSet, varDefs) ->
         case rootSelSet of
           VQ.RMutation selSet ->
             ExOpMutation <$> getMutOp gCtx sqlGenCtx userInfo selSet
@@ -331,11 +362,10 @@ execRemoteGQ
   -> [N.Header]
   -> BL.ByteString
   -- ^ the raw request string
-  -> RemoteSchemaInfo
-  -> G.TypedOperationDefinition
+  -> RemotePlanInfo
   -> m EncJSON
-execRemoteGQ manager userInfo reqHdrs q rsi opDef = do
-  let opTy = G._todType opDef
+execRemoteGQ manager userInfo reqHdrs q remotePlanInfo = do
+  let opTy = G._todType (remotePlanInfoTypedOperationDefinition remotePlanInfo)
   when (opTy == G.OperationTypeSubscription) $
     throw400 NotSupported "subscription to remote server is not supported"
   hdrs <- getHeadersFromConf hdrConf
@@ -355,7 +385,9 @@ execRemoteGQ manager userInfo reqHdrs q rsi opDef = do
   return $ encJFromLBS $ resp ^. Wreq.responseBody
 
   where
-    RemoteSchemaInfo url hdrConf fwdClientHdrs = rsi
+    RemoteSchemaInfo url hdrConf fwdClientHdrs =
+      remotePlanInfoRemoteSchemaInfo remotePlanInfo
+
     httpThrow :: (MonadError QErr m) => HTTP.HttpException -> m a
     httpThrow err = throw500 $ T.pack . show $ err
 

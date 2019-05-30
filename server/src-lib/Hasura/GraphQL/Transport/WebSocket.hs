@@ -245,8 +245,8 @@ onStart serverEnv wsConn (StartMsg opId q) msgRaw = catchAndIgnore $ do
   case execPlan of
     E.GExPHasura resolvedOp ->
       runHasuraGQ userInfo resolvedOp
-    E.GExPRemote rsi opDef  ->
-      runRemoteGQ userInfo reqHdrs opDef rsi
+    -- E.GExPRemote (E.RemotePlanInfo rsi opDef)  ->
+    --   runRemoteGQ userInfo reqHdrs opDef rsi
   where
     runHasuraGQ :: UserInfo -> E.ExecOp -> ExceptT () IO ()
     runHasuraGQ userInfo = \case
@@ -283,8 +283,9 @@ onStart serverEnv wsConn (StartMsg opId q) msgRaw = catchAndIgnore $ do
         const $ withComplete $ preExecErr $
         err500 Unexpected "invalid websocket payload"
       let payload = J.encode $ _wpPayload sockPayload
-      resp <- runExceptT $ E.execRemoteGQ httpMgr userInfo reqHdrs
-              payload rsi opDef
+      resp <- undefined
+              -- runExceptT $ E.execRemoteGQ httpMgr userInfo reqHdrs
+              -- payload rsi opDef
       either postExecErr sendSuccResp resp
       sendCompleted
 
