@@ -16,8 +16,8 @@ response:
             name: IncludeInpObj
         - name: where
           type:
-            name: MessageWhereInpObj_for_remote_relationship
-        name: messages
+            name: MessageWhereInpObj_for_messagesNestedArgs
+        name: messagesNestedArgs
       - args: []
         name: name
 query:
