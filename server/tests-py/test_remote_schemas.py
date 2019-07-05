@@ -8,6 +8,8 @@ import queue
 import requests
 
 import pytest
+import subprocess
+import time
 
 from validate import check_query_f, check_query
 
@@ -425,6 +427,48 @@ class TestAddRemoteSchemaCompareRootQueryFields:
 #    def test_add_schema_header_from_env(self, hge_ctx):
 #        pass
 
+class NodeGraphQL():
+
+    def __init__(self, cmd):
+        self.cmd = cmd
+        self.proc = None
+
+    def start(self):
+        proc = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        time.sleep(1)
+        self.proc = proc
+
+    def stop(self):
+        self.proc.terminate()
+
+@pytest.fixture(scope="module")
+def graphql_service():
+    svc = NodeGraphQL(["node", "remote_schemas/nodejs/index.js"])
+    return svc
+
+class TestAddRemoteSchemaPermissions:
+    @classmethod
+    def dir(cls):
+        return "queries/remote_schemas/permissions/"
+
+    @pytest.fixture(autouse=True)
+    def transact(self, hge_ctx, graphql_service):
+        print("In setup method")
+        graphql_service.start()
+        st_code, resp = hge_ctx.v1q_f(self.dir() + 'setup.yaml')
+        assert st_code == 200, resp
+        yield
+        st_code, resp = hge_ctx.v1q_f(self.dir() + 'teardown.yaml')
+        assert st_code == 200, resp
+        graphql_service.stop()
+
+    def test_add_permissions_valid(self, hge_ctx):
+        st_code, resp = hge_ctx.v1q_f(self.dir() + 'add_permissions_basic.yaml')
+        assert st_code == 200, resp
+
+    def test_add_permissions_invalid(self, hge_ctx):
+        st_code, resp = hge_ctx.v1q_f(self.dir() + 'add_permissions_invalid.yaml')
+        assert st_code == 400, resp
 
 def _map(f, l):
     return list(map(f, l))

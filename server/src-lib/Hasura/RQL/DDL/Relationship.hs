@@ -172,7 +172,7 @@ runCreateRemoteRelationship remoteRelationship = do
   runCreateRemoteRelationshipP2 remoteField additionalTypesMap
 
 runCreateRemoteRelationshipP1 ::
-     (MonadTx m, CacheRM m) => RemoteRelationship -> m (RemoteField, TypeMap)
+     (QErrM m, CacheRM m) => RemoteRelationship -> m (RemoteField, TypeMap)
 runCreateRemoteRelationshipP1 remoteRelationship = do
   sc <- askSchemaCache
   case HM.lookup

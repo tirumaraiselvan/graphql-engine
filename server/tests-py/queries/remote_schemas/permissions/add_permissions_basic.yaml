@@ -1,0 +1,12 @@
+type: add_remote_schema_permissions
+args:
+  remote_schema: my-remote-schema
+  role: user
+  root: query
+  selection_set:
+    - name: hello
+      selection_set: []
+    - name: user
+      selection_set:
+        - name: gimmeText
+          selection_set: []

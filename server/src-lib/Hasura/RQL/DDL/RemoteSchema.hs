@@ -8,22 +8,27 @@ module Hasura.RQL.DDL.RemoteSchema
   , fetchRemoteSchemas
   , addRemoteSchemaP1
   , addRemoteSchemaP2
+  , runAddRemoteSchemaPermissions
   ) where
 
 import           Hasura.EncJSON
+import           Hasura.GraphQL.Utils
 import           Hasura.Prelude
 
-import qualified Data.Aeson                  as J
-import qualified Data.HashMap.Strict         as Map
-import qualified Database.PG.Query           as Q
-import qualified Network.HTTP.Client         as HTTP
+import qualified Data.Aeson                    as J
+import qualified Data.HashMap.Strict           as Map
+import qualified Database.PG.Query             as Q
+import qualified Network.HTTP.Client           as HTTP
 
 import           Hasura.GraphQL.RemoteServer
 import           Hasura.RQL.DDL.Deps
-import           Hasura.RQL.Types
 import           Hasura.RQL.DDL.Remote.Types
+import           Hasura.RQL.Types
 
-import qualified Hasura.GraphQL.Schema       as GS
+import qualified Hasura.GraphQL.Context        as GC
+import qualified Hasura.GraphQL.Schema         as GS
+import qualified Hasura.GraphQL.Validate.Types as VT
+import qualified Language.GraphQL.Draft.Syntax as G
 
 runAddRemoteSchema
   :: ( QErrM m, UserInfoM m
@@ -157,3 +162,67 @@ fetchRemoteSchemas =
      |] () True
   where
     fromRow (n, Q.AltJ def, comm) = AddRemoteSchemaQuery n def comm
+
+runAddRemoteSchemaPermissions
+  :: ( QErrM m, UserInfoM m
+     , CacheRWM m, MonadTx m
+     )
+  => RemoteSchemaPermission -> m EncJSON
+runAddRemoteSchemaPermissions q = do
+  adminOnly
+  runAddRemoteSchemaPermissionP1 q
+  pure successMsg
+
+runAddRemoteSchemaPermissionP1
+  :: (QErrM m, CacheRM m) => RemoteSchemaPermission -> m ()
+runAddRemoteSchemaPermissionP1 remoteSchemaPermission = do
+  sc <- askSchemaCache
+  validateRemoteSchemaPermission sc remoteSchemaPermission
+
+validateRemoteSchemaPermission :: (QErrM m) => SchemaCache -> RemoteSchemaPermission -> m ()
+validateRemoteSchemaPermission sc remoteSchemaPerm = do
+  -- TODO: Use RemoteSchemaInfo here after rakesh PR merge
+  let gCtx = scDefaultRemoteGCtx sc
+      types = GS._gTypes gCtx
+  case Map.lookup
+       (rsPermRemoteSchema remoteSchemaPerm)
+       (scRemoteResolvers sc) of
+    Nothing  -> throw400 RemoteSchemaError "No such remote schema"
+    Just rsi -> case root of
+      G.Name "query"        -> validateSelSet types (pure (GC._gQueryRoot gCtx)) rootSelectionSet
+      G.Name "mutation"     -> validateSelSet types (GC._gMutRoot gCtx) rootSelectionSet
+      G.Name "subscription" -> validateSelSet types (GC._gSubRoot gCtx) rootSelectionSet
+      _ -> throw400 Unexpected "expected query, mutation or subscription in root"
+  where
+    root = rsPermRoot remoteSchemaPerm
+    rootSelectionSet = rsPermSelectionSet remoteSchemaPerm
+
+validateSelSet :: (QErrM m) => VT.TypeMap -> Maybe (VT.ObjTyInfo) -> [PermField] -> m ()
+validateSelSet types start fields = case start of
+  Nothing        -> throw400 NotFound "not an object type"
+  Just objTypeInfo -> void $ traverse
+                      (\(PermField fName selSet) -> case Map.lookup fName (VT._otiFields objTypeInfo) of
+                          Nothing -> throw400 NotFound ("field: " <> showName fName <> " not found")
+                          Just objFldInfo -> if isObjType types objFldInfo
+                            then
+                            validateSelSet types (getTyInfoFromField types objFldInfo) selSet
+                            else
+                            assertEmpty selSet
+                      )
+                      fields
+  where
+    assertEmpty selSet = case selSet of
+      [] -> pure ()
+      _  -> throw400 Unexpected "only object types can have subfields"
+    isObjType types field =
+      let baseTy = getBaseTy (VT._fiTy field)
+          typeInfo = Map.lookup baseTy types
+      in case typeInfo of
+           Just (VT.TIObj _) -> True
+           _                 -> False
+    getTyInfoFromField types field =
+      let baseTy = getBaseTy (VT._fiTy field)
+          fieldName = VT._fiName field
+          typeInfo = Map.lookup baseTy types
+       in case typeInfo of
+            Just (VT.TIObj objTyInfo) -> pure objTyInfo

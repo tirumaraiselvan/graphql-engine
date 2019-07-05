@@ -1,18 +1,20 @@
 module Hasura.RQL.Types.RemoteSchema where
 
 import           Hasura.Prelude
-import           Language.Haskell.TH.Syntax (Lift)
-import           System.Environment         (lookupEnv)
+import           Language.Haskell.TH.Syntax    (Lift)
+import           System.Environment            (lookupEnv)
 
-import qualified Data.Aeson.Casing          as J
-import qualified Data.Aeson.TH              as J
-import qualified Data.HashMap.Strict        as Map
-import qualified Data.Text                  as T
-import qualified Network.URI.Extended       as N
+import qualified Data.Aeson.Casing             as J
+import qualified Data.Aeson.TH                 as J
+import qualified Data.HashMap.Strict           as Map
+import qualified Data.Text                     as T
+import qualified Language.GraphQL.Draft.Syntax as G
+import qualified Network.URI.Extended          as N
 
-import           Hasura.RQL.DDL.Headers     (HeaderConf (..))
+import           Hasura.RQL.DDL.Headers        (HeaderConf (..))
+import           Hasura.RQL.DDL.Remote.Types   (RemoteSchemaName)
 import           Hasura.RQL.Types.Error
-import           Hasura.RQL.DDL.Remote.Types (RemoteSchemaName)
+import           Hasura.RQL.Types.Permission
 
 type UrlFromEnv = Text
 
@@ -107,3 +109,21 @@ validateRemoteSchemaDef (RemoteSchemaDef mUrl mUrlEnv hdrC fwdHdrs) =
     (Just _, Just _)       ->
         throw400 InvalidParams "both `url` and `url_from_env` can't be present"
   where hdrs = fromMaybe [] hdrC
+
+data PermField =
+  PermField
+  { permFieldName         :: !G.Name
+  , permFieldSelectionSet :: [PermField]
+  } deriving (Show, Eq, Lift)
+
+$(J.deriveJSON (J.aesonDrop 9 J.snakeCase) ''PermField)
+
+data RemoteSchemaPermission
+  = RemoteSchemaPermission
+  { rsPermRemoteSchema :: !RemoteSchemaName
+  , rsPermRole         :: !RoleName
+  , rsPermRoot         :: !G.Name
+  , rsPermSelectionSet :: [PermField]
+  } deriving (Show, Eq, Lift)
+
+$(J.deriveJSON (J.aesonDrop 6 J.snakeCase) ''RemoteSchemaPermission)
