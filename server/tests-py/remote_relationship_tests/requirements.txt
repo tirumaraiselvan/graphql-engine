@@ -1,0 +1,5 @@
+requests-cache
+docker
+psycopg2
+colorama
+inflection
