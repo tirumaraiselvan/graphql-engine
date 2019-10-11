@@ -6,6 +6,7 @@ import json
 import time
 import signal
 from requests.exceptions import ConnectionError
+from colorama import Fore, Style
 
 class HGEError(Exception):
     pass
@@ -33,11 +34,13 @@ class HGE:
 
     def run_with_stack(self):
         self.port = self.port_allocator.allocate_port(8080)
+        self.tix_file = self.log_file[:-4] + '.tix'
         hge_env = {
             **os.environ,
             **self.default_graphql_env.copy(),
             'HASURA_GRAPHQL_DATABASE_URL': self.pg.url,
-            'HASURA_GRAPHQL_SERVER_PORT': str(self.port)
+            'HASURA_GRAPHQL_SERVER_PORT': str(self.port),
+            'HPCTIXFILE' : self.tix_file
         }
         if self.admin_secret:
             hge_env['HASURA_GRAPHQL_ADMIN_SECRET'] = self.admin_secret
@@ -81,7 +84,7 @@ class HGE:
             self.log_fp.close()
             self.log_fp = None
         if getattr(self, 'proc', None):
-            print("Stopping graphql engine at port:", self.port)
+            print(Fore.YELLOW + "Stopping graphql engine at port:", self.port, Style.RESET_ALL)
             self.proc.send_signal(signal.SIGINT)
             self.proc.wait()
             self.proc = None

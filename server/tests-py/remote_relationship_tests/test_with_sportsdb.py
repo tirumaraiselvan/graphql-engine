@@ -6,6 +6,7 @@ import threading
 from port_allocator import PortAllocator
 from run_postgres import Postgres
 from run_hge import HGE
+from colorama import Fore, Style
 
 def get_postgres_url():
     return os.environ['HASURA_GRAPHQL_DATABASE_URL']
@@ -23,25 +24,49 @@ class Test:
 
     sportsdb_url='http://www.sportsdb.org/modules/sd/assets/downloads/sportsdb_sample_postgresql.zip'
 
-    output_dir = 'test_output'
+    default_work_dir = 'test_output'
 
-    target_file = 'sportsdb.zip'
+    previous_work_dir_file = '.previous_work_dir'
+
+    def get_previous_work_dir(self):
+        try:
+            with open(self.previous_work_dir_file) as f:
+                return f.read()
+        except FileNotFoundError:
+            return None
+
+    def set_previous_work_dir(self):
+        with open(self.previous_work_dir_file, 'w') as f:
+            return f.write(self.work_dir)
+
+    def get_work_dir(self):
+        default_work_dir = self.get_previous_work_dir() or self.default_work_dir
+        return os.environ.get('WORK_DIR') \
+            or input(Fore.YELLOW + '(Set WORK_DIR environmental variable to avoid this)\n'
+                     + 'Please specify the work directory. (default:{}):'.format(default_work_dir)
+                     + Style.RESET_ALL).strip() \
+            or default_work_dir
 
     def __init__(self, pg_docker_image=default_pg_docker_image, admin_secret=None):
         port_allocator = PortAllocator()
         self.graphql_queries_file = os.path.abspath('queries.graphql')
-        os.makedirs(self.output_dir, exist_ok=True)
-        os.chdir(self.output_dir)
-        requests_cache.install_cache('sportsdb_cache')
+        self.work_dir = self.get_work_dir()
+        print ("WORK_DIR: ", self.work_dir)
+        os.makedirs(self.work_dir, exist_ok=True)
+        requests_cache.install_cache(self.work_dir + '/sportsdb_cache')
         self.pg = Postgres(
             port_allocator=port_allocator, docker_image=pg_docker_image,
-            db_data_dir='sportsdb_data')
+            db_data_dir= self.work_dir + '/sportsdb_data')
         self.remote_pg = Postgres(
             port_allocator=port_allocator, docker_image=pg_docker_image,
-            db_data_dir='remote_sportsdb_data')
-        self.hge = HGE(pg=self.pg, port_allocator=port_allocator,admin_secret=admin_secret, log_file='hge.log')
-        self.remote_hge = HGE(pg=self.remote_pg, port_allocator=port_allocator, admin_secret=admin_secret,
-                              log_file='remote_hge.log')
+            db_data_dir= self.work_dir + '/remote_sportsdb_data')
+        self.hge = HGE(
+            pg=self.pg, port_allocator=port_allocator, admin_secret=admin_secret,
+            log_file= self.work_dir + '/hge.log')
+        self.remote_hge = HGE(
+            pg=self.remote_pg, port_allocator=port_allocator, admin_secret=admin_secret,
+            log_file= self.work_dir + '/remote_hge.log')
+        self.set_previous_work_dir()
 
     def setup_graphql_engines(self):
 
@@ -81,7 +106,7 @@ class Test:
             return
 
         # Download sportsdb
-        zip_file = self.download_sportsdb_zip()
+        zip_file = self.download_sportsdb_zip(self.work_dir+ '/sportsdb.zip')
         sql_file = self.unzip_sql_file(zip_file)
 
         # Create the required tables and move them to required schemas
@@ -104,34 +129,34 @@ class Test:
 
     def teardown(self):
         for res in [self.hge, self.remote_hge, self.pg, self.remote_pg]:
-            res.teardown()
+           res.teardown()
 
-    def download_sportsdb_zip(self, url=sportsdb_url, target_file=target_file):
+    def download_sportsdb_zip(self, filename, url=sportsdb_url):
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
             total=0
             print()
-            with open(target_file, 'wb') as f:
+            with open(filename, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     if chunk:
                         total += len(chunk)
                         print("\rDownloaded: ", int(total/1024)  , 'KB', end='')
                         f.write(chunk)
-            print('\nDB Zip File:', target_file)
-        return target_file
+            print('\nDB Zip File:', filename)
+        return filename
 
     def unzip_sql_file(self, zip_file):
         with ZipFile(zip_file, 'r') as zip:
-            sql_file = zip.namelist()[0]
-            print('DB SQL file:', sql_file)
-            zip.extractall()
-        return sql_file
+            sql_file = zip.infolist()[0]
+            print('DB SQL file:', sql_file.filename)
+            zip.extract(sql_file, self.work_dir)
+        return self.work_dir + '/' + sql_file.filename
 
 if __name__ == "__main__":
     test = Test()
     try:
         test.setup_graphql_engines()
         print("Hasura GraphQL engine is running on URL:",test.hge.url+ '/v1/graphql')
-        input('Press Enter to stop GraphQL engine')
+        input(Fore.BLUE+'Press Enter to stop GraphQL engine' + Style.RESET_ALL)
     finally:
         test.teardown()
