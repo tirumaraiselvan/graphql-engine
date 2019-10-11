@@ -9,8 +9,13 @@ The data will be same in both the databases. But the tables will reside in diffe
 The Python script `test_with_sportsdb.py` will help in setting up the databases, starting the Hasura GraphQL engines, and setting up relationships (both local and remote). This script will run databases on docker, and the GraphQL engines are run with `stack exec`.
 
 #### Setup GraphQL Engines ####
-
-Inorder to start GraphQL engines with sportsdb, run
+- Install dependencies for the Python script in a virtual environment
+```sh
+$ python3 -m venv venv
+$ source venv/bin/activate
+$ pip3 install -r requirements.txt
+```
+- Inorder to start GraphQL engines with sportsdb, run
 ```sh
 python3 test_with_sportsdb.py
 ```
