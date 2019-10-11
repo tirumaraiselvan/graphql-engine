@@ -32,6 +32,11 @@ class HGE:
         self.port_allocator = port_allocator
         self.url = None
 
+    @classmethod
+    def do_stack_build(cls):
+        print(Fore.YELLOW  + "Performing Stack build first" + Style.RESET_ALL)
+        subprocess.call(['stack','build'])
+
     def run_with_stack(self):
         self.port = self.port_allocator.allocate_port(8080)
         self.tix_file = self.log_file[:-4] + '.tix'

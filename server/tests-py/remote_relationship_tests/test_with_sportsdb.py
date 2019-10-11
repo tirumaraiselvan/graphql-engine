@@ -70,6 +70,8 @@ class Test:
 
     def setup_graphql_engines(self):
 
+        HGE.do_stack_build()
+
         def run_concurrently(threads):
             for thread in threads:
                 thread.start()
