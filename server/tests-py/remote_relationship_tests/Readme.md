@@ -41,5 +41,5 @@ Create the `bench.yaml` file
 
 To run the benchmark, do
 ```sh
-cat bench.yaml | docker run -i --rm -p 8050:8050 -v $(pwd)/queries.graphql:/graphql-bench/ws/queries.graphql hasura/graphql-bench:v0.3
+cat bench.yaml | docker run -i --rm --net=host -v $(pwd)/queries.graphql:/graphql-bench/ws/queries.graphql hasura/graphql-bench:v0.3
 ```
