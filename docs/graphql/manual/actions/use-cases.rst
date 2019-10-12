@@ -14,7 +14,7 @@ Actions are ideal for doing custom business logic including data validation, etc
 Data validation
 ---------------
 
-Suppose you want to insert an article for an author only if they have less than 10 articles.
+Suppose you want to insert an article only if the article's character length is greater than 500 and the author has less than 10 articles.
 
 
 
