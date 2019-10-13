@@ -121,5 +121,8 @@ If you mark an action as "asynchronous", graphql-engine also generates a query a
   :hidden:
 
   Create custom mutations <custom-mutations>
+  Input types <input-types>
+  Response types <response-types>
   Action handlers <action-handlers>
+  Async actions <async-actions>
   Sample use cases <use-cases>
