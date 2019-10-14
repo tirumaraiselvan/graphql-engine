@@ -56,9 +56,9 @@ Once you have the action setup, you'll have to define the permissions for the ro
      }
    }
 
-Where ``action_id`` is a unique id generated for every action that has been performed. The response from the webhook can be accessed through the ``response`` field.
+Where ``action_id`` is a unique id generated for every action that has been performed. The response from the action handler can be accessed through the ``response`` field.
 
-An action can be linked to different types of handlers. In this example, let's use a HTTP handler which will be invoked when this action is called by the client. The logic of this handler could look something like this:
+An action can be linked to different types of handlers (see: :doc:`Action handlers <action-handlers>`). In this example, let's use a HTTP handler which will be invoked when this action is called by the client. The logic of this handler could look something like this:
 
 .. code-block:: python
 
