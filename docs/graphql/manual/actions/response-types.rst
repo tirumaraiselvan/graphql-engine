@@ -8,24 +8,44 @@ Action Response Types
   :local:
 
 
-What all can be returned including relations.
+WORK IN PROGRESS
 
+You can return different types of responses when an action is executed.
 
-Simple response type
---------------------
+Basic Response
+--------------
 
-.. code-block:: graphql
-
-   type place_order_response {
-     order_id uuid!
-   }
-
-Complex reponse type with relationships
----------------------------------------
+WORK IN PROGRESS
 
 .. code-block:: graphql
 
-   type place_order_response {
-     order_id uuid!
+
+   mutation place_order($order_input: place_order_input!) {
+     place_order(input: $order_input) {
+       action_id
+     }
    }
+
+Complex response with relationships
+-----------------------------------
+
+WORK IN PROGRESS
+
+.. code-block:: graphql
+
+   mutation place_order($order_input: place_order_input!) {
+     place_order(input: $order_input) {
+       action_id
+       response {
+         order {
+           id
+           payment_url
+           total_amount
+           discount
+         }
+       }
+     }
+   }
+
+You can fetch relationships of the ``order`` like you would when you query the ``order`` table. Thus with actions you can write the minimum needed code that is needed to validate the mutation and still not lose out on the powerful query fields that graphql-engine generates.
 

@@ -6,12 +6,15 @@ Action Input Types
   :depth: 1
   :local:
 
+WORK IN PROGRESS
 
-Reference for creating different input types
+Reference for creating different input types.
 
 
 Scalar Input Types
 ------------------
+
+WORK IN PROGRESS
 
 .. code-block:: graphql
 
@@ -23,6 +26,8 @@ Scalar Input Types
 
 Object Input Types
 ------------------
+
+WORK IN PROGRESS
 
 .. code-block:: graphql
 
