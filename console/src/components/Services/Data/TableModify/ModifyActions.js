@@ -28,6 +28,13 @@ import {
 
 import { isPostgresFunction } from '../utils';
 import { sqlEscapeText } from '../../../Common/utils/sqlUtils';
+import { getConfirmation } from '../../../Common/utils/jsUtils';
+import {
+  findTable,
+  generateTableDef,
+  getTableCheckConstraints,
+  findTableCheckConstraint,
+} from '../../../Common/utils/pgUtils';
 
 import {
   fetchColumnCastsQuery,
@@ -35,9 +42,10 @@ import {
   getCreatePkSql,
   getDropPkSql,
 } from './utils';
+import { CLI_CONSOLE_MODE } from '../../../../constants';
 
 const DELETE_PK_WARNING =
-  'Without a Primary key there is no way to uniquely identify a row of a table. Are you sure?';
+  'Without a primary key there is no way to uniquely identify a row of a table';
 
 const VIEW_DEF_REQUEST_SUCCESS = 'ModifyTable/VIEW_DEF_REQUEST_SUCCESS';
 const VIEW_DEF_REQUEST_ERROR = 'ModifyTable/VIEW_DEF_REQUEST_ERROR';
@@ -125,6 +133,61 @@ const removePrimaryKey = pkIndex => ({
 const resetPrimaryKeys = () => ({
   type: RESET_PRIMARY_KEY,
 });
+
+export const removeCheckConstraint = constraintName => (dispatch, getState) => {
+  const confirmMessage = `This will permanently delete the check constraint "${constraintName}" from this table`;
+  const isOk = getConfirmation(confirmMessage, true, constraintName);
+  if (!isOk) return;
+
+  const { currentTable: tableName, currentSchema } = getState().tables;
+
+  const table = findTable(
+    getState().tables.allSchemas,
+    generateTableDef(tableName, currentSchema)
+  );
+
+  const constraint = findTableCheckConstraint(
+    getTableCheckConstraints(table),
+    constraintName
+  );
+
+  const upQuery = {
+    type: 'run_sql',
+    args: {
+      sql: `alter table "${currentSchema}"."${tableName}" drop constraint "${constraintName}"`,
+    },
+  };
+  const downQuery = {
+    type: 'run_sql',
+    args: {
+      sql: `alter table "${currentSchema}"."${tableName}" add constraint "${constraintName}" ${
+        constraint.check
+      };`,
+    },
+  };
+
+  const migrationName = `drop_check_constraint_${currentSchema}_${tableName}_${constraintName}`;
+  const requestMsg = 'Deleting check constraint...';
+  const successMsg = 'Check constraint deleted';
+  const errorMsg = 'Deleting check constraint failed';
+  const customOnSuccess = () => {};
+  const customOnError = err => {
+    dispatch({ type: UPDATE_MIGRATION_STATUS_ERROR, data: err });
+  };
+
+  makeMigrationCall(
+    dispatch,
+    getState,
+    [upQuery],
+    [downQuery],
+    migrationName,
+    customOnSuccess,
+    customOnError,
+    requestMsg,
+    successMsg,
+    errorMsg
+  );
+};
 
 const savePrimaryKeys = (tableName, schemaName, constraintName) => {
   return (dispatch, getState) => {
@@ -487,7 +550,7 @@ const setUniqueKeys = keys => ({
   keys,
 });
 
-const changeTableOrViewName = (isTable, oldName, newName) => {
+const changeTableName = (oldName, newName, isTable) => {
   return (dispatch, getState) => {
     const property = isTable ? 'table' : 'view';
 
@@ -1046,7 +1109,7 @@ const deleteColumnSql = (column, tableSchema) => {
     const errorMsg = 'Deleting column failed';
 
     const customOnSuccess = (data, consoleMode, migrationMode) => {
-      if (consoleMode === 'cli' && migrationMode) {
+      if (consoleMode === CLI_CONSOLE_MODE && migrationMode) {
         // show warning information
         dispatch(
           showWarningNotification(
@@ -2070,9 +2133,10 @@ export const toggleTableAsEnum = (isEnum, successCallback, failureCallback) => (
   dispatch,
   getState
 ) => {
-  const isOk = window.confirm(
-    `Are you sure you want to ${isEnum ? 'un' : ''}set this table as an enum?`
-  );
+  const confirmMessage = `This will ${
+    isEnum ? 'un' : ''
+  }set this table as an enum`;
+  const isOk = getConfirmation(confirmMessage);
   if (!isOk) {
     return;
   }
@@ -2285,7 +2349,7 @@ export {
   TOGGLE_ENUM,
   TOGGLE_ENUM_SUCCESS,
   TOGGLE_ENUM_FAILURE,
-  changeTableOrViewName,
+  changeTableName,
   fetchViewDefinition,
   handleMigrationErrors,
   saveColumnChangesSql,

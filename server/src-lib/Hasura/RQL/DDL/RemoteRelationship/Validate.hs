@@ -44,6 +44,7 @@ data ValidationError
   | InvalidGTypeForStripping !G.GType
   | UnsupportedArgumentType G.Value
   | UnsupportedForeignRelationship !RelInfo
+  | UnsupportedComputedField !ComputedFieldInfo
   | UnsupportedRemoteField !RemoteField
   | UnsupportedEnum
   deriving (Show, Eq)
@@ -369,6 +370,9 @@ fieldInfoToNamedType =
       _                         -> Failure $ pure UnsupportedEnum
     FIRelationship relInfo ->
       Failure (pure (UnsupportedForeignRelationship relInfo))
+    FIComputedField compFieldInfo ->
+      Failure (pure (UnsupportedComputedField compFieldInfo))
+
     -- FIRemote remoteField ->
     --   Failure (pure (RemoteFieldsNotAllowedInArguments remoteField))
 
