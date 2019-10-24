@@ -5,6 +5,7 @@ import inflection
 import json
 import time
 import signal
+import docker
 from requests.exceptions import ConnectionError
 from colorama import Fore, Style
 
@@ -22,24 +23,26 @@ class HGE:
         'HASURA_GRAPHQL_ENABLE_CONSOLE' : 'true'
     }
 
-    def __init__(self, pg, port_allocator, admin_secret, log_file='hge.log'):
+    def __init__(self, pg, port_allocator, admin_secret=None, docker_image=None, log_file='hge.log'):
         self.pg = pg
         self.log_file = log_file
+        self.tix_file = self.log_file[:-4] + '.tix'
         self.admin_secret = admin_secret
+        self.docker_image = docker_image
         self.introspection = None
         self.obj_fk_rels = set()
         self.arr_fk_rels = set()
         self.port_allocator = port_allocator
         self.url = None
+        self.proc = None
+        self.container = None
 
     @classmethod
     def do_stack_build(cls):
         print(Fore.YELLOW  + "Performing Stack build first" + Style.RESET_ALL)
-        subprocess.call(['stack','build'])
+        subprocess.check_call(['stack','build'])
 
-    def run_with_stack(self):
-        self.port = self.port_allocator.allocate_port(8080)
-        self.tix_file = self.log_file[:-4] + '.tix'
+    def get_hge_env(self):
         hge_env = {
             **os.environ,
             **self.default_graphql_env.copy(),
@@ -49,7 +52,38 @@ class HGE:
         }
         if self.admin_secret:
             hge_env['HASURA_GRAPHQL_ADMIN_SECRET'] = self.admin_secret
+        return hge_env
 
+    def run(self):
+        if self.docker_image:
+            self.run_with_docker()
+        else:
+            self.run_with_stack()
+
+    def run_with_docker(self):
+        self.port = self.port_allocator.allocate_port(8080)
+        hge_env = self.get_hge_env()
+        process_args = ['graphql-engine', 'serve']
+        docker_ports = {str(self.port) + '/tcp': ('127.0.0.1', self.port)}
+        self.docker_client = docker.from_env()
+        print("Running GraphQL Engine docker with image:",
+              self.docker_image, '(port:{})'.format(self.port))
+        self.container = self.docker_client.containers.run(
+            self.docker_image,
+            command=process_args,
+            detach=True,
+            ports=docker_ports,
+            environment=hge_env,
+            network_mode='host',
+            volumes={}
+        )
+        self.url = 'http://localhost:' + str(self.port)
+        print("Waiting for GraphQL Engine to be running.", end='')
+        self.wait_for_start()
+
+    def run_with_stack(self):
+        self.port = self.port_allocator.allocate_port(8080)
+        hge_env = self.get_hge_env()
         process_args = ['stack', 'exec', 'graphql-engine', '--', 'serve']
         self.log_fp = open(self.log_file, 'w')
         self.proc = subprocess.Popen(
@@ -64,13 +98,27 @@ class HGE:
         print("Waiting for GraphQL Engine to be running.", end='')
         self.wait_for_start()
 
-    def wait_for_start(self, timeout=60):
-        if timeout <= 0:
-            raise HGEError("Timeout waiting for graphql process to start")
+    def check_if_process_is_running(self):
         if self.proc.poll() is not None:
             with open(self.log_file) as fr:
                 raise HGEError(
                         "GraphQL engine failed with error: " + fr.read())
+
+    def check_if_container_is_running(self):
+        self.container.reload()
+        if self.container.status == 'exited':
+            raise HGEError(
+                "GraphQL engine failed with error: \n" +
+                self.container.logs(stdout=True, stderr=True).decode('ascii')
+            )
+
+    def wait_for_start(self, timeout=60):
+        if timeout <= 0:
+            raise HGEError("Timeout waiting for graphql process to start")
+        if self.proc:
+            self.check_if_process_is_running()
+        elif self.container:
+            self.check_if_container_is_running()
         try:
             q = { 'query': 'query { __typename }' }
             r = requests.post(self.url + '/v1/graphql',json.dumps(q),headers=self.admin_auth_headers())
@@ -88,11 +136,24 @@ class HGE:
         if getattr(self, 'log_fp', None):
             self.log_fp.close()
             self.log_fp = None
-        if getattr(self, 'proc', None):
+        if self.proc:
+            self.cleanup_process()
+        elif self.container:
+            self.cleanup_docker()
+
+    def cleanup_process(self):
             print(Fore.YELLOW + "Stopping graphql engine at port:", self.port, Style.RESET_ALL)
             self.proc.send_signal(signal.SIGINT)
             self.proc.wait()
             self.proc = None
+
+    def cleanup_docker(self):
+        cntnr_info = "HGE docker container " + self.container.name + " " + repr(self.container.image)
+        print(Fore.YELLOW + "Stopping " + cntnr_info + Style.RESET_ALL)
+        self.container.stop()
+        print(Fore.YELLOW + "Removing " + cntnr_info + Style.RESET_ALL)
+        self.container.remove()
+        self.container = None
 
     def admin_auth_headers(self):
         headers = {}

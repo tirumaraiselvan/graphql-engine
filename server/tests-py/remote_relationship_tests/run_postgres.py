@@ -13,14 +13,14 @@ class PostgresError(Exception):
 
 class Postgres:
 
-    def __init__(self, docker_image, db_data_dir, port_allocator):
+    def __init__(self, docker_image, db_data_dir, port_allocator, url):
         self.port_allocator =  port_allocator
         self.docker_image = docker_image
         self.db_data_dir = os.path.abspath(db_data_dir)
-        self.url = None
+        self.url = url
 
     def setup(self):
-        if self.docker_image:
+        if self.docker_image and not self.url:
             self.start_postgres_docker()
 
     def start_postgres_docker(self):
@@ -45,7 +45,8 @@ class Postgres:
         }
 
         self.docker_client = docker.from_env()
-        print("Running postgres docker with image: " + self.docker_image)
+        print("Running postgres docker with image:",
+              self.docker_image, '(port:{})'.format(self.port))
         cntnr = self.docker_client.containers.run(
             self.docker_image,
             detach=True,
@@ -59,7 +60,17 @@ class Postgres:
         self.wait_for_db_start()
         print("")
 
+    def check_if_container_is_running(self):
+        self.pg_container.reload()
+        if self.pg_container.status == 'exited':
+            raise PostgresError(
+                "Postgres docker failed with error: \n" +
+                self.pg_container.logs(stdout=True, stderr=True).decode('ascii')
+            )
+
     def wait_for_db_start(self, timeout=60):
+        if self.pg_container:
+            self.check_if_container_is_running()
         if timeout > 0:
             try:
                 self.run_sql('select 1')

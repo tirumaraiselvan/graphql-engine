@@ -7,26 +7,34 @@ from port_allocator import PortAllocator
 from run_postgres import Postgres
 from run_hge import HGE
 from colorama import Fore, Style
-
-def get_postgres_url():
-    return os.environ['HASURA_GRAPHQL_DATABASE_URL']
-
-def get_hge_url():
-    return os.environ['HGE_URL']
-
-def get_hge_key():
-    return os.environ.get['HASURA_GRAPHQL_ADMIN_SECRET']
+import argparse
+import sys
 
 
-class Test:
+def _first_true(iterable, default=False, pred=None):
+    return next(filter(pred, iterable), default)
 
-    default_pg_docker_image = 'circleci/postgres:11.5-alpine-postgis'
+
+class HGETestSetup:
 
     sportsdb_url='http://www.sportsdb.org/modules/sd/assets/downloads/sportsdb_sample_postgresql.zip'
 
     default_work_dir = 'test_output'
 
     previous_work_dir_file = '.previous_work_dir'
+
+    def __init__(self, pg_urls, pg_docker_image, hge_docker_image=None, hge_admin_secret=None, skip_stack_build=False):
+        self.pg_url, self.remote_pg_url = pg_urls or (None, None)
+        self.pg_docker_image = pg_docker_image
+        self.hge_docker_image = hge_docker_image
+        self.hge_admin_secret = hge_admin_secret
+        self.skip_stack_build = skip_stack_build
+        self.graphql_queries_file = os.path.abspath('queries.graphql')
+        self.port_allocator = PortAllocator()
+        self.set_work_dir()
+        self.init_pgs()
+        self.init_hges()
+        self.set_previous_work_dir()
 
     def get_previous_work_dir(self):
         try:
@@ -47,30 +55,42 @@ class Test:
                      + Style.RESET_ALL).strip() \
             or default_work_dir
 
-    def __init__(self, pg_docker_image=default_pg_docker_image, admin_secret=None):
-        port_allocator = PortAllocator()
-        self.graphql_queries_file = os.path.abspath('queries.graphql')
+
+    def set_work_dir(self):
         self.work_dir = self.get_work_dir()
         print ("WORK_DIR: ", self.work_dir)
         os.makedirs(self.work_dir, exist_ok=True)
         requests_cache.install_cache(self.work_dir + '/sportsdb_cache')
-        self.pg = Postgres(
-            port_allocator=port_allocator, docker_image=pg_docker_image,
-            db_data_dir= self.work_dir + '/sportsdb_data')
-        self.remote_pg = Postgres(
-            port_allocator=port_allocator, docker_image=pg_docker_image,
-            db_data_dir= self.work_dir + '/remote_sportsdb_data')
-        self.hge = HGE(
-            pg=self.pg, port_allocator=port_allocator, admin_secret=admin_secret,
-            log_file= self.work_dir + '/hge.log')
-        self.remote_hge = HGE(
-            pg=self.remote_pg, port_allocator=port_allocator, admin_secret=admin_secret,
-            log_file= self.work_dir + '/remote_hge.log')
-        self.set_previous_work_dir()
+
+    def init_pgs(self):
+        pg_confs = [
+            ('sportsdb_data', self.pg_url),
+            ('remote_sportsdb_data', self.remote_pg_url)
+        ]
+        self.pg, self.remote_pg = [
+            Postgres(
+                port_allocator=self.port_allocator, docker_image=self.pg_docker_image,
+                db_data_dir= self.work_dir + '/' + data_dir, url=url
+            )
+            for (data_dir, url) in pg_confs
+        ]
+
+    def init_hges(self):
+        hge_confs = [
+            (self.pg, 'hge.log'),
+            (self.remote_pg, 'remote_hge.log')
+        ]
+        self.hge, self.remote_hge = [
+            HGE(
+                pg=pg, port_allocator=self.port_allocator, admin_secret=self.hge_admin_secret,
+                log_file= self.work_dir + '/' + log_file, docker_image=self.hge_docker_image)
+            for (pg, log_file) in hge_confs
+        ]
 
     def setup_graphql_engines(self):
 
-        HGE.do_stack_build()
+        if not self.hge_docker_image and not self.skip_stack_build:
+            HGE.do_stack_build()
 
         def run_concurrently(threads):
             for thread in threads:
@@ -98,9 +118,11 @@ class Test:
         run_concurrently_fns(
             self.pg.start_postgres_docker,
             self.remote_pg.start_postgres_docker)
+        print("Postgres url:", self.pg.url)
+        print("Remote Postgres url:", self.remote_pg.url)
 
-        self.remote_hge.run_with_stack()
-        self.hge.run_with_stack()
+        self.remote_hge.run()
+        self.hge.run()
 
         # Skip if the tables are already present
         tables = self.pg.get_all_tables_in_a_schema('hge')
@@ -122,6 +144,10 @@ class Test:
         self.hge.add_remote_schema(
             'remote_hge', self.remote_hge.url + '/v1/graphql',
             self.remote_hge.admin_auth_headers())
+
+        tables = self.pg.get_all_tables_in_a_schema('hdb_catalog')
+        if 'hdb_remote_relationship' not in tables:
+            return
 
         # Create remote relationships
         self.hge.create_remote_obj_rel_to_itself('hge', 'remote_hge', 'remote_hge')
@@ -154,11 +180,85 @@ class Test:
             zip.extract(sql_file, self.work_dir)
         return self.work_dir + '/' + sql_file.filename
 
+
+class HGETestSetupWithArgs(HGETestSetup):
+
+    default_pg_docker_image = 'circleci/postgres:11.5-alpine-postgis'
+
+    def __init__(self):
+        self.set_arg_parse_options()
+        self.parse_args()
+        super().__init__(
+            pg_urls = self.pg_urls,
+            pg_docker_image = self.pg_docker_image,
+            hge_docker_image = self.hge_docker_image,
+            hge_admin_secret = self.hge_admin_secret,
+            skip_stack_build = self.skip_stack_build
+        )
+
+    def set_arg_parse_options(self):
+        self.arg_parser = argparse.ArgumentParser()
+        self.set_pg_options()
+        self.set_hge_options()
+
+    def parse_args(self):
+        self.parsed_args = self.arg_parser.parse_args()
+        self.set_pg_confs()
+        self.set_hge_confs()
+
+    def set_pg_confs(self):
+        self.pg_urls, self.pg_docker_image = self.get_exclusive_params([
+            ('pg_urls', 'HASURA_BENCH_PG_URLS'),
+            ('pg_docker_image', 'HASURA_BENCH_PG_DOCKER_IMAGE')
+        ])
+        if self.pg_urls:
+            self.pg_urls = self.pg_urls.split(',')
+        else:
+            self.pg_docker_image = self.pg_docker_image or self.default_pg_docker_image
+
+    def set_hge_confs(self):
+        self.hge_docker_image = self.get_param('hge_docker_image', 'HASURA_BENCH_DOCKER_IMAGE')
+        self.hge_admin_secret = self.get_param('hge_admin_secret', 'HASURA_BENCH_HGE_ADMIN_SECRET')
+        self.skip_stack_build = self.parsed_args.skip_stack_build
+
+    def set_pg_options(self):
+        self.arg_parser.add_argument('--pg-urls', metavar='HASURA_BENCH_PG_URLS', help='Postgres database urls to be used for tests, given as comma separated values', required=False)
+        self.arg_parser.add_argument('--pg-docker-image', metavar='HASURA_BENCH_PG_DOCKER_IMAGE', help='Postgres docker image to be used for tests', required=False)
+
+    def set_hge_options(self):
+        self.arg_parser.add_argument('--hge-docker-image', metavar='HASURA_BENCH_HGE_DOCKER_IMAGE', help='GraphQl engine docker image to be used for tests', required=False)
+        self.arg_parser.add_argument('--hge-admin-secret', metavar='HASURA_BENCH_HGE_ADMIN_SECRET', help='Admin secret set for GraphQL engines. By default, no admin secret is set', required=False)
+        self.arg_parser.add_argument('--skip-stack-build', help='Skip stack build if this option is set', action='store_true', required=False)
+
+
+    def get_param(self, attr, env):
+        return _first_true([getattr(self.parsed_args, attr), os.getenv(env)])
+
+    def get_exclusive_params(self, params_loc):
+        excl_param = None
+        params_out = []
+        for (attr, env) in params_loc:
+            param = self.get_param(attr, env)
+            params_out.append(param)
+            if param:
+                if not excl_param:
+                    excl_param = (param, attr, env)
+                else:
+                    (param1, attr1, env1) = excl_param
+                    def loc(a, e):
+                        arg = '--' + a.replace('_','-')
+                        return arg + '(env: ' + e + ')'
+                    print(loc(attr, env), 'and', loc(attr1, env1), 'should not be defined together')
+                    sys.exit(1)
+        return params_out
+
+
 if __name__ == "__main__":
-    test = Test()
+    test_setup = HGETestSetupWithArgs()
     try:
-        test.setup_graphql_engines()
-        print("Hasura GraphQL engine is running on URL:",test.hge.url+ '/v1/graphql')
+        test_setup.setup_graphql_engines()
+        print("Hasura GraphQL engine is running on URL:",test_setup.hge.url+ '/v1/graphql')
         input(Fore.BLUE+'Press Enter to stop GraphQL engine' + Style.RESET_ALL)
     finally:
-        test.teardown()
+        test_setup.teardown()
+
