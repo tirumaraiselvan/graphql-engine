@@ -1,0 +1,11 @@
+- name: events_affilications
+  warmup_duration: 60
+  duration: 300
+  candidates:
+  - name: hge-with-remote
+    url: http://127.0.0.1:8081/v1/graphql
+    query: events_remote_affiliations
+    queries_file: queries.graphql
+  rps:
+  - 20
+  - 40
