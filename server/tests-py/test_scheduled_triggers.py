@@ -7,7 +7,7 @@ from croniter import croniter
 import time
 
 def stringify_datetime(dt):
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 def get_events_of_scheduled_trigger(hge_ctx,trigger_name):
     events_count_sql = '''
@@ -78,24 +78,24 @@ class TestSubscriptionTrigger(object):
         check_schedule_of_generated_events(hge_ctx,trigger_name,cron_schedule,datetime.utcnow())
         assert st_code == 200,st_resp
 
-    # def test_one_off_scheduled_trigger(self,hge_ctx,evts_webhook):
-    #     time = datetime.now() + timedelta(days=1)
-    #     current_time_str = stringify_datetime(time)
-    #     trigger_name = "oneoff_trigger-" + current_time_str
-    #     create_trigger_query = {
-    #         "type":"create_scheduled_trigger",
-    #         "args":{
-    #             "name":trigger_name,
-    #             "webhook":"http://127.0.0.1/5592",
-    #             "schedule":{
-    #                 "type":"AdHoc",
-    #                 "value":current_time_str
-    #             },
-    #         },
-    #             "payload":"{\"foo\":\"baz\"}"
-    #     }
-    #     url = '/v1/query'
-    #     st_code,resp,_ = hge_ctx.anyq(url,create_trigger_query,{})
-    #     check_if_scheduled_event_exists(hge_ctx,trigger_name,10)
-    #     print(resp)
-    #     assert st_code == 200,resp
+    def test_one_off_scheduled_trigger(self,hge_ctx,evts_webhook):
+        time = datetime.now()
+        current_time_str = stringify_datetime(time)
+        print("current time str is",current_time_str)
+        trigger_name = "adhoc_trigger-" + current_time_str
+        create_trigger_query = {
+            "type":"create_scheduled_trigger",
+            "args":{
+                "name":trigger_name,
+                "webhook":"http://127.0.0.1/5592",
+                "schedule":{
+                    "type":"AdHoc",
+                    "value":current_time_str
+                },
+            },
+                "payload":"{\"foo\":\"baz\"}"
+        }
+        url = '/v1/query'
+        st_code,resp,_ = hge_ctx.anyq(url,create_trigger_query,{})
+        assert st_code == 200,resp
+        check_if_scheduled_event_exists(hge_ctx,trigger_name,10,6.0)
