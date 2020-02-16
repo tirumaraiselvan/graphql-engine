@@ -21,6 +21,7 @@ def get_events_of_scheduled_trigger(hge_ctx,trigger_name):
     }
     return hge_ctx.v1q(q)
 
+@pytest.mark.usefixtures("evts_webhook")
 class TestSubscriptionTrigger(object):
 
     cron_trigger_name = ""
@@ -28,7 +29,7 @@ class TestSubscriptionTrigger(object):
     cron_schedule = "5 * * * *"
     init_time = datetime.now()
 
-    def test_create_schedule_triggers(self,hge_ctx):
+    def test_create_schedule_triggers(self,hge_ctx,evts_webhook):
         current_time_str = stringify_datetime(datetime.now())
         TestSubscriptionTrigger.cron_trigger_name = "a scheduled trigger - " + current_time_str
         TestSubscriptionTrigger.adhoc_trigger_name = "adhoc trigger - " + current_time_str
@@ -37,7 +38,7 @@ class TestSubscriptionTrigger(object):
             "type":"create_scheduled_trigger",
             "args":{
                 "name":self.cron_trigger_name,
-                "webhook":"http://127.0.0.1/5592",
+                "webhook":"http://127.0.0.1:5592",
                 "schedule":{
                     "type":"cron",
                     "value":self.cron_schedule
@@ -49,7 +50,7 @@ class TestSubscriptionTrigger(object):
             "type":"create_scheduled_trigger",
             "args":{
                 "name":self.adhoc_trigger_name,
-                "webhook":"http://127.0.0.1/5592",
+                "webhook":"http://127.0.0.1:5592",
                 "schedule":{
                     "type":"adhoc",
                     "value":current_time_str
