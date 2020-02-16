@@ -54,7 +54,7 @@ def check_if_scheduled_event_exists(hge_ctx,trigger_name,retries=1,interval=4.0)
         retries = retries -1
     assert False       # not found any scheduled events, so fail the test
 
-class TestCreateSubscriptionTrigger(object):
+class TestSubscriptionTrigger(object):
 
     def test_cron_scheduled_trigger(self,hge_ctx,evts_webhook):
         current_time_str = stringify_datetime(datetime.now())
