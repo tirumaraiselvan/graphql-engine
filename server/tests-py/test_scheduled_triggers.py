@@ -29,6 +29,8 @@ class TestSubscriptionTrigger(object):
     adhoc_trigger_name = ""
     cron_schedule = "5 * * * *"
     init_time = datetime.now()
+    webhook_payload = {"foo":"baz"}
+    webhook_path = "/hello"
 
     def test_create_schedule_triggers(self,hge_ctx,evts_webhook):
         current_time_str = stringify_datetime(datetime.utcnow())
@@ -51,13 +53,13 @@ class TestSubscriptionTrigger(object):
             "type":"create_scheduled_trigger",
             "args":{
                 "name":self.adhoc_trigger_name,
-                "webhook":"http://127.0.0.1:5592/hello",
+                "webhook":"http://127.0.0.1:5592" + self.webhook_path,
                 "schedule":{
                     "type":"adhoc",
                     "value":current_time_str
                 },
-            },
-            "payload":{"foo":"baz"}
+                "payload":self.webhook_payload
+            }
         }
         url = '/v1/query'
         cron_st_code,cron_st_resp,_ = hge_ctx.anyq(url,cron_st_api_query,{})
@@ -83,7 +85,6 @@ class TestSubscriptionTrigger(object):
         }
         st,resp = hge_ctx.v1q(q)
         assert st == 200
-        print("resp",resp)
         ts_resp = resp['result'][1:]
         scheduled_events_ts = []
         for ts in ts_resp:
@@ -95,5 +96,5 @@ class TestSubscriptionTrigger(object):
 
     def test_check_webhook_event(self,hge_ctx,evts_webhook):
         ev_full = evts_webhook.get_event(3)
-        validate_event_webhook(ev_full['path'],"/hello")
-        print("resp",ev_full)
+        validate_event_webhook(ev_full['path'],self.webhook_path)
+        assert ev_full['body'] == self.webhook_payload
