@@ -4,6 +4,7 @@ import pytest
 from datetime import datetime
 from datetime import timedelta
 from croniter import croniter
+from validate import validate_event_webhook
 import time
 
 def stringify_datetime(dt):
@@ -30,7 +31,7 @@ class TestSubscriptionTrigger(object):
     init_time = datetime.now()
 
     def test_create_schedule_triggers(self,hge_ctx,evts_webhook):
-        current_time_str = stringify_datetime(datetime.now())
+        current_time_str = stringify_datetime(datetime.utcnow())
         TestSubscriptionTrigger.cron_trigger_name = "a scheduled trigger - " + current_time_str
         TestSubscriptionTrigger.adhoc_trigger_name = "adhoc trigger - " + current_time_str
         TestSubscriptionTrigger.cron_schedule = "5 * * * *"
@@ -38,7 +39,7 @@ class TestSubscriptionTrigger(object):
             "type":"create_scheduled_trigger",
             "args":{
                 "name":self.cron_trigger_name,
-                "webhook":"http://127.0.0.1:5592",
+                "webhook":"http://example.com",
                 "schedule":{
                     "type":"cron",
                     "value":self.cron_schedule
@@ -50,13 +51,13 @@ class TestSubscriptionTrigger(object):
             "type":"create_scheduled_trigger",
             "args":{
                 "name":self.adhoc_trigger_name,
-                "webhook":"http://127.0.0.1:5592",
+                "webhook":"http://127.0.0.1:5592/hello",
                 "schedule":{
                     "type":"adhoc",
                     "value":current_time_str
                 },
             },
-            "payload":"{\"foo\":\"baz\"}"
+            "payload":{"foo":"baz"}
         }
         url = '/v1/query'
         cron_st_code,cron_st_resp,_ = hge_ctx.anyq(url,cron_st_api_query,{})
@@ -66,7 +67,7 @@ class TestSubscriptionTrigger(object):
         assert cron_st_resp['message'] ==  adhoc_st_resp['message'] == 'success'
         time.sleep(60.0)
 
-    def test_check_generated_scheduled_events(self,hge_ctx):
+    def test_check_generated_scheduled_events(self,hge_ctx,evts_webhook):
         future_schedule_timestamps = []
         iter = croniter(self.cron_schedule,self.init_time)
         for i in range(5):
@@ -91,3 +92,8 @@ class TestSubscriptionTrigger(object):
         assert future_schedule_timestamps == scheduled_events_ts
         adhoc_event_st,adhoc_event_resp = get_events_of_scheduled_trigger(hge_ctx,self.adhoc_trigger_name)
         assert int(adhoc_event_resp['result'][1][0]) == 1
+
+    def test_check_webhook_event(self,hge_ctx,evts_webhook):
+        ev_full = evts_webhook.get_event(3)
+        validate_event_webhook(ev_full['path'],"/hello")
+        print("resp",ev_full)
