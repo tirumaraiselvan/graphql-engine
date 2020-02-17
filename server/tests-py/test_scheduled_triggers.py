@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime
 from datetime import timedelta
 from croniter import croniter
-from validate import validate_event_webhook
+from validate import validate_event_webhook,validate_event_headers
 import time
 
 def stringify_datetime(dt):
@@ -25,17 +25,19 @@ def get_events_of_scheduled_trigger(hge_ctx,trigger_name):
 @pytest.mark.usefixtures("evts_webhook")
 class TestSubscriptionTrigger(object):
 
-    cron_trigger_name = ""
-    adhoc_trigger_name = ""
+    cron_trigger_name = "a_scheduled_trigger"
+    adhoc_trigger_name = "adhoc_trigger"
     cron_schedule = "5 * * * *"
     init_time = datetime.now()
     webhook_payload = {"foo":"baz"}
     webhook_path = "/hello"
 
+    @classmethod
+    def dir(cls):
+        return 'queries/scheduled_triggers'
+
     def test_create_schedule_triggers(self,hge_ctx,evts_webhook):
         current_time_str = stringify_datetime(datetime.utcnow())
-        TestSubscriptionTrigger.cron_trigger_name = "a scheduled trigger - " + current_time_str
-        TestSubscriptionTrigger.adhoc_trigger_name = "adhoc trigger - " + current_time_str
         TestSubscriptionTrigger.cron_schedule = "5 * * * *"
         cron_st_api_query = {
             "type":"create_scheduled_trigger",
@@ -58,7 +60,13 @@ class TestSubscriptionTrigger(object):
                     "type":"adhoc",
                     "value":current_time_str
                 },
-                "payload":self.webhook_payload
+                "payload":self.webhook_payload,
+                "headers":[
+                    {
+                        "name":"header-1",
+                        "value":"header-1-value"
+                    }
+                ]
             }
         }
         url = '/v1/query'
@@ -75,7 +83,8 @@ class TestSubscriptionTrigger(object):
         for i in range(5):
             future_schedule_timestamps.append(iter.next(datetime))
         sql = '''
-    select scheduled_time from hdb_catalog.hdb_scheduled_events where name = '{}' order by scheduled_time asc limit 5;
+    select scheduled_time from hdb_catalog.hdb_scheduled_events where
+        name = '{}' order by scheduled_time asc limit 5;
     '''
         q = {
             "type":"run_sql",
@@ -92,9 +101,13 @@ class TestSubscriptionTrigger(object):
             scheduled_events_ts.append(datetime_ts)
         assert future_schedule_timestamps == scheduled_events_ts
         adhoc_event_st,adhoc_event_resp = get_events_of_scheduled_trigger(hge_ctx,self.adhoc_trigger_name)
-        assert int(adhoc_event_resp['result'][1][0]) == 1
+        assert int(adhoc_event_resp['result'][1][0]) == 1 # An adhoc ST should create exactly one schedule event
 
     def test_check_webhook_event(self,hge_ctx,evts_webhook):
         ev_full = evts_webhook.get_event(3)
         validate_event_webhook(ev_full['path'],self.webhook_path)
         assert ev_full['body'] == self.webhook_payload
+
+    def test_delete_scheduled_triggers(self,hge_ctx):
+        st_code,resp = hge_ctx.v1q_f(self.dir() + '/basic/teardown.yaml')
+        assert st_code == 200,resp

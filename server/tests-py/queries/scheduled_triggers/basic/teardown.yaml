@@ -1,0 +1,8 @@
+type: bulk
+args:
+- type: delete_scheduled_trigger
+  args:
+    name: a_scheduled_trigger
+- type: delete_scheduled_trigger
+  args:
+    name: adhoc_trigger
