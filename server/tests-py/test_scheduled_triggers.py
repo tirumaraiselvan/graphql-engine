@@ -82,11 +82,11 @@ class TestSubscriptionTrigger(object):
     def test_check_generated_scheduled_events(self,hge_ctx,evts_webhook):
         future_schedule_timestamps = []
         iter = croniter(self.cron_schedule,self.init_time)
-        for i in range(5):
+        for i in range(100):
             future_schedule_timestamps.append(iter.next(datetime))
         sql = '''
     select scheduled_time from hdb_catalog.hdb_scheduled_events where
-        name = '{}' order by scheduled_time asc limit 5;
+        name = '{}' order by scheduled_time asc;
     '''
         q = {
             "type":"run_sql",
@@ -97,6 +97,7 @@ class TestSubscriptionTrigger(object):
         st,resp = hge_ctx.v1q(q)
         assert st == 200
         ts_resp = resp['result'][1:]
+        assert len(ts_resp) == 100 # 100 events are generated in a cron ST
         scheduled_events_ts = []
         for ts in ts_resp:
             datetime_ts = datetime.strptime(ts[0],"%Y-%m-%d %H:%M:%S")
