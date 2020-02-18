@@ -24,7 +24,7 @@ def get_events_of_scheduled_trigger(hge_ctx,trigger_name):
     return hge_ctx.v1q(q)
 
 @pytest.mark.usefixtures("evts_webhook")
-class TestSubscriptionTrigger(object):
+class TestScheduledTrigger(object):
 
     cron_trigger_name = "a_scheduled_trigger"
     adhoc_trigger_name = "adhoc_trigger"
