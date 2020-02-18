@@ -106,6 +106,7 @@ class TestSubscriptionTrigger(object):
     def test_check_webhook_event(self,hge_ctx,evts_webhook):
         ev_full = evts_webhook.get_event(3)
         validate_event_webhook(ev_full['path'],self.webhook_path)
+        validate_event_headers(ev_full['headers'],{"header-1":"header-1-value"})
         assert ev_full['body'] == self.webhook_payload
 
     def test_delete_scheduled_triggers(self,hge_ctx):
