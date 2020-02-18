@@ -5,6 +5,7 @@ from datetime import datetime
 from datetime import timedelta
 from croniter import croniter
 from validate import validate_event_webhook,validate_event_headers
+from _queue import Empty
 import time
 
 def stringify_datetime(dt):
@@ -31,6 +32,8 @@ class TestSubscriptionTrigger(object):
     init_time = datetime.now()
     webhook_payload = {"foo":"baz"}
     webhook_path = "/hello"
+    retries = 12
+    interval_in_secs = 5.0
 
     @classmethod
     def dir(cls):
@@ -75,7 +78,6 @@ class TestSubscriptionTrigger(object):
         adhoc_st_code,adhoc_st_resp,_ = hge_ctx.anyq(url,adhoc_st_api_query,{})
         assert cron_st_code == adhoc_st_code == 200
         assert cron_st_resp['message'] ==  adhoc_st_resp['message'] == 'success'
-        time.sleep(60.0)
 
     def test_check_generated_scheduled_events(self,hge_ctx,evts_webhook):
         future_schedule_timestamps = []
@@ -104,10 +106,23 @@ class TestSubscriptionTrigger(object):
         assert int(adhoc_event_resp['result'][1][0]) == 1 # An adhoc ST should create exactly one schedule event
 
     def test_check_webhook_event(self,hge_ctx,evts_webhook):
-        ev_full = evts_webhook.get_event(3)
-        validate_event_webhook(ev_full['path'],self.webhook_path)
-        validate_event_headers(ev_full['headers'],{"header-1":"header-1-value"})
-        assert ev_full['body'] == self.webhook_payload
+        counter = 0
+        while (counter < self.retries):
+            try:
+                ev_full = evts_webhook.get_event(3)
+                validate_event_webhook(ev_full['path'],self.webhook_path)
+                validate_event_headers(ev_full['headers'],{"header-1":"header-1-value"})
+                assert ev_full['body'] == self.webhook_payload
+                return
+            except Empty:
+                # Instead of waiting for a full minute for this test,
+                # check if the webhook has been hit every `self.interval_in_secs`
+                # seconds for `self.retries` times
+                counter = counter + 1
+                time.sleep(self.interval_in_secs)
+            except:
+                assert False # unexpected exception
+        assert False #retries exhausted
 
     def test_delete_scheduled_triggers(self,hge_ctx):
         st_code,resp = hge_ctx.v1q_f(self.dir() + '/basic/teardown.yaml')
