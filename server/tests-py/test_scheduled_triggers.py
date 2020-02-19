@@ -48,17 +48,24 @@ class TestScheduledTrigger(object):
         }
         st,resp = hge_ctx.v1q(q)
         assert st == 200,resp
+        next_min = (datetime.utcnow() + timedelta(minutes=1)).minute
         current_time_str = stringify_datetime(datetime.utcnow())
-        TestScheduledTrigger.cron_schedule = "5 * * * *"
+        TestScheduledTrigger.cron_schedule = "{} * * * *".format(next_min)
         cron_st_api_query = {
             "type":"create_scheduled_trigger",
             "args":{
                 "name":self.cron_trigger_name,
-                "webhook":"http://127.0.0.1:5592" + self.webhook_path,
+                "webhook":"http://127.0.0.1:5592" + "/foo",
                 "schedule":{
                     "type":"cron",
                     "value":self.cron_schedule
                 },
+                "headers":[
+                    {
+                        "name":"foo",
+                        "value":"baz"
+                    }
+                ],
                 "payload":self.webhook_payload
             }
         }
@@ -116,13 +123,20 @@ class TestScheduledTrigger(object):
 
     def test_check_webhook_event(self,hge_ctx,evts_webhook):
         counter = 0
+        queue_size = 2 # 1 adhoc ST and 1st scheduled event of the cron ST
+        queue_counter = 0
         while (counter < self.retries):
             try:
                 ev_full = evts_webhook.get_event(3)
-                validate_event_webhook(ev_full['path'],self.webhook_path)
-                validate_event_headers(ev_full['headers'],{"header-1":"header-1-value"})
-                assert ev_full['body'] == self.webhook_payload
-                return
+                queue_counter = queue_counter + 1
+                if ev_full['path'] == '/hello':
+                    validate_event_headers(ev_full['headers'],{"header-1":"header-1-value"})
+                    assert ev_full['body'] == self.webhook_payload
+                elif ev_full['path'] == '/foo':
+                    validate_event_headers(ev_full['headers'],{"foo":"baz"})
+                counter = counter + 1
+                if queue_counter == queue_size:
+                    break
             except Empty:
                 # Instead of waiting for a full minute for this test,
                 # check if the webhook has been hit every `self.interval_in_secs`
@@ -133,7 +147,7 @@ class TestScheduledTrigger(object):
                 print("unknown exception", e)
                 assert False # unexpected exception
                 return
-        assert False #retries exhausted
+        assert queue_counter == queue_size
 
     def test_delete_scheduled_triggers(self,hge_ctx):
         st_code,resp = hge_ctx.v1q_f(self.dir() + '/basic/teardown.yaml')
