@@ -41,7 +41,7 @@ class TestScheduledTrigger(object):
 
     def test_create_schedule_triggers(self,hge_ctx,evts_webhook):
         current_time_str = stringify_datetime(datetime.utcnow())
-        TestSubscriptionTrigger.cron_schedule = "5 * * * *"
+        TestScheduledTrigger.cron_schedule = "5 * * * *"
         cron_st_api_query = {
             "type":"create_scheduled_trigger",
             "args":{
@@ -50,9 +50,9 @@ class TestScheduledTrigger(object):
                 "schedule":{
                     "type":"cron",
                     "value":self.cron_schedule
-                }
-            },
-            "payload":"{}"
+                },
+                "payload":self.webhook_payload
+            }
         }
         adhoc_st_api_query = {
             "type":"create_scheduled_trigger",
@@ -74,7 +74,7 @@ class TestScheduledTrigger(object):
         }
         url = '/v1/query'
         cron_st_code,cron_st_resp,_ = hge_ctx.anyq(url,cron_st_api_query,{})
-        TestSubscriptionTrigger.init_time = datetime.utcnow()
+        TestScheduledTrigger.init_time = datetime.utcnow()
         adhoc_st_code,adhoc_st_resp,_ = hge_ctx.anyq(url,adhoc_st_api_query,{})
         assert cron_st_code == adhoc_st_code == 200
         assert cron_st_resp['message'] ==  adhoc_st_resp['message'] == 'success'
@@ -121,8 +121,10 @@ class TestScheduledTrigger(object):
                 # seconds for `self.retries` times
                 counter = counter + 1
                 time.sleep(self.interval_in_secs)
-            except:
+            except Exception as e:
+                print("unknown exception", e)
                 assert False # unexpected exception
+                return
         assert False #retries exhausted
 
     def test_delete_scheduled_triggers(self,hge_ctx):
