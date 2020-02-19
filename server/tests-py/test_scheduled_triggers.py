@@ -50,6 +50,8 @@ class TestScheduledTrigger(object):
         assert st == 200,resp
         next_min = (datetime.utcnow() + timedelta(minutes=1)).minute
         current_time_str = stringify_datetime(datetime.utcnow())
+        # Setting the cron schedule to with the minute offset of the next min.
+        # Doing this will help test for the first scheduled generated event.
         TestScheduledTrigger.cron_schedule = "{} * * * *".format(next_min)
         cron_st_api_query = {
             "type":"create_scheduled_trigger",
@@ -149,6 +151,9 @@ class TestScheduledTrigger(object):
                 return
         assert queue_counter == queue_size
 
+    # Apart from checking that no additional events were triggered.
+    # This test is necessary because if there are events in the webhook queue
+    # the test suite won't shut down, until the events are popped from the queue.
     def test_empty_webhook_queue(self,hge_ctx,evts_webhook):
         counter = 0
         while True:
