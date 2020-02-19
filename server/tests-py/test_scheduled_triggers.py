@@ -149,6 +149,16 @@ class TestScheduledTrigger(object):
                 return
         assert queue_counter == queue_size
 
+    def test_empty_webhook_queue(self,hge_ctx,evts_webhook):
+        counter = 0
+        while True:
+            try:
+                ev_full = evts_webhook.get_event(3)
+                counter = counter + 1
+            except Empty:
+                assert counter == 0
+                return
+
     def test_delete_scheduled_triggers(self,hge_ctx):
         st_code,resp = hge_ctx.v1q_f(self.dir() + '/basic/teardown.yaml')
         assert st_code == 200,resp
