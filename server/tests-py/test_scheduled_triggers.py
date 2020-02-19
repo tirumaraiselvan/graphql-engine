@@ -28,8 +28,8 @@ class TestScheduledTrigger(object):
 
     cron_trigger_name = "a_scheduled_trigger"
     adhoc_trigger_name = "adhoc_trigger"
-    cron_schedule = "5 * * * *"
-    init_time = datetime.now()
+    cron_schedule = None
+    init_time = None
     webhook_payload = {"foo":"baz"}
     webhook_path = "/hello"
     retries = 12
