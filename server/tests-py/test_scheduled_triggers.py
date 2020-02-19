@@ -40,13 +40,21 @@ class TestScheduledTrigger(object):
         return 'queries/scheduled_triggers'
 
     def test_create_schedule_triggers(self,hge_ctx,evts_webhook):
+        q = {
+            "type":"run_sql",
+            "args":{
+                "sql":"set time zone 'UTC'"
+            }
+        }
+        st,resp = hge_ctx.v1q(q)
+        assert st == 200,resp
         current_time_str = stringify_datetime(datetime.utcnow())
         TestScheduledTrigger.cron_schedule = "5 * * * *"
         cron_st_api_query = {
             "type":"create_scheduled_trigger",
             "args":{
                 "name":self.cron_trigger_name,
-                "webhook":"http://example.com",
+                "webhook":"http://127.0.0.1:5592" + self.webhook_path,
                 "schedule":{
                     "type":"cron",
                     "value":self.cron_schedule
