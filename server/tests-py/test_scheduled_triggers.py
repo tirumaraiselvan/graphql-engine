@@ -24,22 +24,16 @@ def get_events_of_scheduled_trigger(hge_ctx,trigger_name):
     return hge_ctx.v1q(q)
 
 @pytest.mark.usefixtures("evts_webhook")
-class TestScheduledTrigger(object):
+class TestScheduledTriggerCron(object):
 
     cron_trigger_name = "a_scheduled_trigger"
-    adhoc_trigger_name = "adhoc_trigger"
-    cron_schedule = None
-    init_time = None
     webhook_payload = {"foo":"baz"}
     webhook_path = "/hello"
-    retries = 12
-    interval_in_secs = 5.0
-
-    @classmethod
-    def dir(cls):
-        return 'queries/scheduled_triggers'
+    url = '/v1/query'
 
     def test_create_schedule_triggers(self,hge_ctx,evts_webhook):
+        # setting the time zone to 'UTC' because everything
+        # (utcnow,now,cronschedule) will all be based on UTC.
         q = {
             "type":"run_sql",
             "args":{
@@ -48,11 +42,10 @@ class TestScheduledTrigger(object):
         }
         st,resp = hge_ctx.v1q(q)
         assert st == 200,resp
-        next_min = (datetime.utcnow() + timedelta(minutes=1)).minute
-        current_time_str = stringify_datetime(datetime.utcnow())
-        # Setting the cron schedule to with the minute offset of the next min.
-        # Doing this will help test for the first scheduled generated event.
-        TestScheduledTrigger.cron_schedule = "{} * * * *".format(next_min)
+        # setting the test to be after 30 mins, to make sure that
+        # any of the events are not triggered.
+        min_after_30_mins = (datetime.utcnow() + timedelta(minutes=30)).minute
+        TestScheduledTriggerCron.cron_schedule = "{} * * * *".format(min_after_30_mins)
         cron_st_api_query = {
             "type":"create_scheduled_trigger",
             "args":{
@@ -71,30 +64,10 @@ class TestScheduledTrigger(object):
                 "payload":self.webhook_payload
             }
         }
-        adhoc_st_api_query = {
-            "type":"create_scheduled_trigger",
-            "args":{
-                "name":self.adhoc_trigger_name,
-                "webhook":"http://127.0.0.1:5592" + self.webhook_path,
-                "schedule":{
-                    "type":"adhoc",
-                    "value":current_time_str
-                },
-                "payload":self.webhook_payload,
-                "headers":[
-                    {
-                        "name":"header-1",
-                        "value":"header-1-value"
-                    }
-                ]
-            }
-        }
-        url = '/v1/query'
-        cron_st_code,cron_st_resp,_ = hge_ctx.anyq(url,cron_st_api_query,{})
-        TestScheduledTrigger.init_time = datetime.utcnow()
-        adhoc_st_code,adhoc_st_resp,_ = hge_ctx.anyq(url,adhoc_st_api_query,{})
-        assert cron_st_code == adhoc_st_code == 200
-        assert cron_st_resp['message'] ==  adhoc_st_resp['message'] == 'success'
+        cron_st_code,cron_st_resp,_ = hge_ctx.anyq(self.url,cron_st_api_query,{})
+        TestScheduledTriggerCron.init_time = datetime.utcnow() # the cron events will be generated based on the current time, they will not be exactly the same though(the server now and now here)
+        assert cron_st_code == 200
+        assert cron_st_resp['message'] == 'success'
 
     def test_check_generated_scheduled_events(self,hge_ctx,evts_webhook):
         future_schedule_timestamps = []
@@ -120,22 +93,78 @@ class TestScheduledTrigger(object):
             datetime_ts = datetime.strptime(ts[0],"%Y-%m-%d %H:%M:%S")
             scheduled_events_ts.append(datetime_ts)
         assert future_schedule_timestamps == scheduled_events_ts
+
+    def test_delete_adhoc_scheduled_trigger(self,hge_ctx,evts_webhook):
+        q = {
+            "type":"delete_scheduled_trigger",
+            "args":{
+                "name":self.cron_trigger_name
+            }
+        }
+        st,resp = hge_ctx.v1q(q)
+        assert st == 200,resp
+
+@pytest.mark.usefixtures("evts_webhook")
+class TestScheduledTriggerAdhoc(object):
+
+    adhoc_trigger_name = "adhoc_trigger"
+    webhook_path = "/hello"
+    retries = 12
+    interval_in_secs = 5.0
+    webhook_payload = {"foo":"baz"}
+    url = "/v1/query"
+
+    @classmethod
+    def dir(cls):
+        return 'queries/scheduled_triggers'
+
+    def test_create_adhoc_scheduled_trigger(self,hge_ctx,evts_webhook):
+        q = {
+            "type":"run_sql",
+            "args":{
+                "sql":"set time zone 'UTC'"
+            }
+        }
+        st,resp = hge_ctx.v1q(q)
+        current_time = datetime.utcnow()
+        current_time_str =  stringify_datetime(current_time)
+        adhoc_st_api_query = {
+            "type":"create_scheduled_trigger",
+            "args":{
+                "name":self.adhoc_trigger_name,
+                "webhook":"http://127.0.0.1:5592" + self.webhook_path,
+                "schedule":{
+                    "type":"adhoc",
+                    "value":current_time_str
+                },
+                "payload":self.webhook_payload,
+                "headers":[
+                    {
+                        "name":"header-1",
+                        "value":"header-1-value"
+                    }
+                ]
+            }
+        }
+        adhoc_st_code,adhoc_st_resp,_ = hge_ctx.anyq(self.url,adhoc_st_api_query,{})
+        assert adhoc_st_resp['message'] == 'success'
+        assert adhoc_st_code == 200
+
+    def test_check_generated_event(self,hge_ctx,evts_webhook):
         adhoc_event_st,adhoc_event_resp = get_events_of_scheduled_trigger(hge_ctx,self.adhoc_trigger_name)
         assert int(adhoc_event_resp['result'][1][0]) == 1 # An adhoc ST should create exactly one schedule event
 
     def test_check_webhook_event(self,hge_ctx,evts_webhook):
         counter = 0
-        queue_size = 2 # 1 adhoc ST and 1st scheduled event of the cron ST
+        queue_size = 1 # 1 adhoc ST
         queue_counter = 0
         while (counter < self.retries):
             try:
                 ev_full = evts_webhook.get_event(3)
                 queue_counter = queue_counter + 1
-                if ev_full['path'] == '/hello':
-                    validate_event_headers(ev_full['headers'],{"header-1":"header-1-value"})
-                    assert ev_full['body'] == self.webhook_payload
-                elif ev_full['path'] == '/foo':
-                    validate_event_headers(ev_full['headers'],{"foo":"baz"})
+                validate_event_webhook(ev_full['path'],'/hello')
+                validate_event_headers(ev_full['headers'],{"header-1":"header-1-value"})
+                assert ev_full['body'] == self.webhook_payload
                 counter = counter + 1
                 if queue_counter == queue_size:
                     break
@@ -151,19 +180,12 @@ class TestScheduledTrigger(object):
                 return
         assert queue_counter == queue_size
 
-    # Apart from checking that no additional events were triggered.
-    # This test is necessary because if there are events in the webhook queue
-    # the test suite won't shut down, until the events are popped from the queue.
-    def test_empty_webhook_queue(self,hge_ctx,evts_webhook):
-        counter = 0
-        while True:
-            try:
-                ev_full = evts_webhook.get_event(3)
-                counter = counter + 1
-            except Empty:
-                assert counter == 0
-                return
-
-    def test_delete_scheduled_triggers(self,hge_ctx):
-        st_code,resp = hge_ctx.v1q_f(self.dir() + '/basic/teardown.yaml')
-        assert st_code == 200,resp
+    def test_delete_adhoc_scheduled_trigger(self,hge_ctx,evts_webhook):
+        q = {
+            "type":"delete_scheduled_trigger",
+            "args":{
+                "name":self.adhoc_trigger_name
+            }
+        }
+        st,resp = hge_ctx.v1q(q)
+        assert st == 200,resp
