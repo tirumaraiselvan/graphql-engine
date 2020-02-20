@@ -109,8 +109,9 @@ class TestScheduledTriggerAdhoc(object):
 
     adhoc_trigger_name = "adhoc_trigger"
     webhook_path = "/hello"
-    retries = 12
-    interval_in_secs = 5.0
+    retries = 30
+    interval_in_secs = 2.0
+    # maximum wait time is retries * interval_in_secs = 60 secs
     webhook_payload = {"foo":"baz"}
     url = "/v1/query"
 
