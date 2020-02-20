@@ -174,10 +174,6 @@ class TestScheduledTriggerAdhoc(object):
                 # seconds for `self.retries` times
                 counter = counter + 1
                 time.sleep(self.interval_in_secs)
-            except Exception as e:
-                print("unknown exception", e)
-                assert False # unexpected exception
-                return
         assert queue_counter == queue_size
 
     def test_delete_adhoc_scheduled_trigger(self,hge_ctx,evts_webhook):
