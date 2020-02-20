@@ -104,13 +104,14 @@ class TestScheduledTriggerCron(object):
         st,resp = hge_ctx.v1q(q)
         assert st == 200,resp
 
+class ScheduledEventNotFound(Exception):
+    pass
+
 @pytest.mark.usefixtures("evts_webhook")
 class TestScheduledTriggerAdhoc(object):
 
     adhoc_trigger_name = "adhoc_trigger"
     webhook_path = "/hello"
-    retries = 30
-    interval_in_secs = 2.0
     # maximum wait time is retries * interval_in_secs = 60 secs
     webhook_payload = {"foo":"baz"}
     url = "/v1/query"
@@ -118,6 +119,16 @@ class TestScheduledTriggerAdhoc(object):
     @classmethod
     def dir(cls):
         return 'queries/scheduled_triggers'
+
+    def poll_until_scheduled_event_found(self,evts_webhook,retries=12,interval_in_secs=5.0):
+        while (retries > 0):
+            try:
+                ev_full = evts_webhook.get_event(3)
+                return ev_full
+            except Empty:
+                retries = retries - 1
+                time.sleep(interval_in_secs)
+        raise ScheduledEventNotFound # retries exhausted
 
     def test_create_adhoc_scheduled_trigger(self,hge_ctx,evts_webhook):
         q = {
@@ -156,26 +167,12 @@ class TestScheduledTriggerAdhoc(object):
         assert int(adhoc_event_resp['result'][1][0]) == 1 # An adhoc ST should create exactly one schedule event
 
     def test_check_webhook_event(self,hge_ctx,evts_webhook):
-        counter = 0
-        queue_size = 1 # 1 adhoc ST
-        queue_counter = 0
-        while (counter < self.retries):
-            try:
-                ev_full = evts_webhook.get_event(3)
-                queue_counter = queue_counter + 1
-                validate_event_webhook(ev_full['path'],'/hello')
-                validate_event_headers(ev_full['headers'],{"header-1":"header-1-value"})
-                assert ev_full['body'] == self.webhook_payload
-                counter = counter + 1
-                if queue_counter == queue_size:
-                    break
-            except Empty:
-                # Instead of waiting for a full minute for this test,
-                # check if the webhook has been hit every `self.interval_in_secs`
-                # seconds for `self.retries` times
-                counter = counter + 1
-                time.sleep(self.interval_in_secs)
-        assert queue_counter == queue_size
+        ev_full = self.poll_until_scheduled_event_found(evts_webhook)
+        validate_event_webhook(ev_full['path'],'/hello')
+        validate_event_headers(ev_full['headers'],{"header-1":"header-1-value"})
+        assert ev_full['body'] == self.webhook_payload
+        time.sleep(1.0) # sleep for 1s more to check if any other events were also fired
+        assert evts_webhook.is_queue_empty()
 
     def test_delete_adhoc_scheduled_trigger(self,hge_ctx,evts_webhook):
         q = {
