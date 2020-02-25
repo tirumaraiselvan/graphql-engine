@@ -8,6 +8,7 @@ module Hasura.RQL.Types.ScheduledTrigger
   , RetryConfST(..)
   , formatTime'
   , defaultRetryConfST
+  , UtcOffset(..)
   ) where
 
 import           Data.Time.Clock
@@ -19,10 +20,14 @@ import           Data.Aeson.TH
 import           Hasura.Prelude
 import           System.Cron.Types
 import           Hasura.Incremental
+import           Language.Haskell.TH.Syntax (Lift)
+import           Hasura.RQL.Types.Common    (NonEmptyText (..))
+import           Hasura.SQL.Types
 
 import qualified Data.Text                     as T
 import qualified Data.Aeson                    as J
 import qualified Hasura.RQL.Types.EventTrigger as ET
+import qualified Database.PG.Query             as Q
 
 data RetryConfST
   = RetryConfST
@@ -66,6 +71,9 @@ instance ToJSON ScheduleType where
   toJSON (AdHoc (Just ts)) = object ["type" .= String "adhoc", "value" .= toJSON ts]
   toJSON (AdHoc Nothing) = object ["type" .= String "adhoc"]
 
+newtype UtcOffset = UtcOffset { unUtcOffset :: NonEmptyText }
+  deriving (Show, Eq, Hashable, Lift, DQuote, FromJSON, ToJSON, ToJSONKey, Q.FromCol, Q.ToPrepArg, Generic, Arbitrary, NFData, Cacheable)
+
 data CreateScheduledTrigger
   = CreateScheduledTrigger
   { stName           :: !ET.TriggerName
@@ -74,6 +82,7 @@ data CreateScheduledTrigger
   , stPayload        :: !(Maybe J.Value)
   , stRetryConf      :: !RetryConfST
   , stHeaders        :: ![ET.HeaderConf]
+  , stUtcOffset      :: !(Maybe UtcOffset)
   } deriving (Show, Eq, Generic)
 
 instance NFData CreateScheduledTrigger
@@ -88,6 +97,8 @@ instance FromJSON CreateScheduledTrigger where
       stSchedule <- o .: "schedule"
       stRetryConf <- o .:? "retry_conf" .!= defaultRetryConfST
       stHeaders <- o .:? "headers" .!= []
+      stUtcOffset <- o .:? "utc_offset"
+
       pure CreateScheduledTrigger {..}
 
 $(deriveToJSON (aesonDrop 2 snakeCase){omitNothingFields=True} ''CreateScheduledTrigger)

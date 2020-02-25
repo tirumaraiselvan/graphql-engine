@@ -44,10 +44,10 @@ addScheduledTriggerToCatalog CreateScheduledTrigger {..} = liftTx $ do
   Q.unitQE defaultTxErrorHandler
     [Q.sql|
       INSERT into hdb_catalog.hdb_scheduled_trigger
-        (name, webhook_conf, schedule_conf, payload, retry_conf, header_conf)
-      VALUES ($1, $2, $3, $4, $5, $6)
+        (name, webhook_conf, schedule_conf, payload, retry_conf, header_conf, utc_offset)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
     |] (stName, Q.AltJ stWebhook, Q.AltJ stSchedule, Q.AltJ <$> stPayload, Q.AltJ stRetryConf
-       ,Q.AltJ stHeaders) False
+       ,Q.AltJ stHeaders, stUtcOffset) False
   case stSchedule of
     AdHoc (Just timestamp) -> Q.unitQE defaultTxErrorHandler
       [Q.sql|

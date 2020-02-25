@@ -6,6 +6,7 @@ CREATE TABLE hdb_catalog.hdb_scheduled_trigger
   payload JSON,
   retry_conf JSON,
   header_conf JSON,
+  utc_offset text,
   include_in_metadata BOOLEAN NOT NULL DEFAULT FALSE
 );
 
