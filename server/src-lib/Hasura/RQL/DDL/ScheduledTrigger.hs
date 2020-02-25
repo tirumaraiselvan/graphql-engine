@@ -57,8 +57,10 @@ addScheduledTriggerToCatalog CreateScheduledTrigger {..} = liftTx $ do
       |] (stName, timestamp) False
     Cron cron -> do
       currentTime <- liftIO C.getCurrentTime
-      let scheduleTimes = generateScheduleTimes currentTime 100 cron -- generate next 100 events
-          events = map (ScheduledEventSeed stName) scheduleTimes
+      let timeWithOffset = C.addUTCTime 19800 currentTime
+          scheduleTimesWithOffset = generateScheduleTimes timeWithOffset 100 cron -- generate next 100 events
+          scheduleTimesinUtc = map (\t -> C.addUTCTime (-19800) t) scheduleTimesWithOffset
+          events = map (ScheduledEventSeed stName) scheduleTimesinUtc
       insertScheduledEvents events
     _ -> pure ()
 
