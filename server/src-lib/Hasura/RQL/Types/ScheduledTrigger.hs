@@ -73,6 +73,11 @@ instance ToJSON ScheduleType where
   toJSON (AdHoc (Just ts)) = object ["type" .= String "adhoc", "value" .= toJSON ts]
   toJSON (AdHoc Nothing) = object ["type" .= String "adhoc"]
 
+-- convertUtcOffsetToTimeZone can take an offset in any one of
+-- the following formats:
+-- HHMM,HH:MM,(+/-)HHMM
+-- If the length of the offset is 4, then it's assumed that it's a
+-- positive offset.
 convertUtcOffsetToTimeZone :: String -> Either String TimeZone
 convertUtcOffsetToTimeZone offset
   | length offset == 4 = convertUtcOffsetToTimeZone ('+':offset)
