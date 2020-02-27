@@ -12,6 +12,8 @@ module Hasura.RQL.DDL.ScheduledTrigger
   , resolveScheduledTrigger
   ) where
 
+import           Data.Time.LocalTime (TimeZone(..))
+
 import           Hasura.Db
 import           Hasura.EncJSON
 import           Hasura.Prelude
@@ -55,10 +57,22 @@ addScheduledTriggerToCatalog CreateScheduledTrigger {..} = liftTx $ do
           (name, scheduled_time)
          VALUES ($1, $2)
       |] (stName, timestamp) False
-    Cron cron -> do
+    -- when no timezone, then generate events keeping UTC as seed time
+    Cron cron Nothing -> do
       currentTime <- liftIO C.getCurrentTime
       let scheduleTimes = generateScheduleTimes currentTime 100 cron -- generate next 100 events
           events = map (ScheduledEventSeed stName) scheduleTimes
+      insertScheduledEvents events
+    Cron cron (Just (TimeZone mins _ _)) -> do
+      currentTime <- liftIO C.getCurrentTime
+      let secsOffset = realToFrac $ (mins * 60)
+          currentTimeWithOffset = C.addUTCTime secsOffset currentTime
+          -- generate the schedule times with `currentTimeWithOffset`
+          -- and then while inserting it into the db, convert it back into UTC.
+          scheduleTimesWithOffset = generateScheduleTimes currentTimeWithOffset 100 cron
+          -- by default,generate next 100 events
+          scheduleTimesinUtc = map (\t -> C.addUTCTime (-1 * secsOffset) t) scheduleTimesWithOffset
+          events = map (ScheduledEventSeed stName) scheduleTimesinUtc
       insertScheduledEvents events
     _ -> pure ()
 

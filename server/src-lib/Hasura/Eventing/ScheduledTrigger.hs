@@ -17,7 +17,6 @@ The delivery mechanism is similar to Event Triggers; see "Hasura.Eventing.EventT
 module Hasura.Eventing.ScheduledTrigger
   ( processScheduledQueue
   , runScheduledEventsGenerator
-
   , ScheduledEventSeed(..)
   , generateScheduleTimes
   , insertScheduledEvents
@@ -29,6 +28,7 @@ import           Data.Has
 import           Data.Int (Int64)
 import           Data.List                       (unfoldr)
 import           Data.Time.Clock
+import           Data.Time.LocalTime             (TimeZone(..))
 import           Hasura.Eventing.HTTP
 import           Hasura.Prelude
 import           Hasura.RQL.DDL.Headers
@@ -206,8 +206,17 @@ generateScheduledEventsFrom startTime ScheduledTriggerInfo{..} =
   let events =
         case stiSchedule of
           AdHoc _ -> empty -- ad-hoc scheduled events are created through 'create_scheduled_event' API
-          Cron cron -> generateScheduleTimes startTime 100 cron -- by default, generate next 100 events
-   in map (ScheduledEventSeed stiName) events
+
+          Cron cron Nothing -> generateScheduleTimes startTime 100 cron -- by default,generate next 100 events
+
+          Cron cron (Just (TimeZone mins _ _)) -> do
+            let secsOffset = realToFrac $ (mins * 60)
+                startTimeWithOffset = addUTCTime secsOffset startTime
+                scheduleTimesWithOffset =
+                  generateScheduleTimes startTimeWithOffset 100 cron
+            map (\t -> addUTCTime (-1 * secsOffset) t) scheduleTimesWithOffset
+
+  in map (ScheduledEventSeed stiName) events
 
 -- | Generates next @n events starting @from according to 'CronSchedule'
 generateScheduleTimes :: UTCTime -> Int -> CronSchedule -> [UTCTime]

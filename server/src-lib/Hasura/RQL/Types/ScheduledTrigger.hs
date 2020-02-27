@@ -16,13 +16,19 @@ import           Data.Time.Format
 import           Data.Aeson
 import           Data.Aeson.Casing
 import           Data.Aeson.TH
+import           Data.Char
 import           Hasura.Prelude
 import           System.Cron.Types
 import           Hasura.Incremental
+import           Language.Haskell.TH.Syntax (Lift)
+import           Hasura.RQL.Types.Common    (NonEmptyText (..))
+import           Hasura.SQL.Types
+import           Data.Time.LocalTime (TimeZone(..),minutesToTimeZone)
 
 import qualified Data.Text                     as T
 import qualified Data.Aeson                    as J
 import qualified Hasura.RQL.Types.EventTrigger as ET
+import qualified Database.PG.Query             as Q
 
 data RetryConfST
   = RetryConfST
@@ -46,7 +52,7 @@ defaultRetryConfST =
   , rcstTolerance = 21600 -- 6 hours
   }
 
-data ScheduleType = Cron CronSchedule | AdHoc (Maybe UTCTime)
+data ScheduleType = Cron CronSchedule (Maybe TimeZone) | AdHoc (Maybe UTCTime)
   deriving (Show, Eq, Generic)
 
 instance NFData ScheduleType
@@ -57,14 +63,42 @@ instance FromJSON ScheduleType where
     withObject "ScheduleType" $ \o -> do
       type' <- o .: "type"
       case type' of
-        String "cron" -> Cron <$> o .: "value"
+        String "cron" -> Cron <$> o .: "value" <*> o .:? "utc-offset"
         String "adhoc" -> AdHoc <$> o .:? "value"
         _ -> fail "expected type to be cron or adhoc"
 
 instance ToJSON ScheduleType where
-  toJSON (Cron cs) = object ["type" .= String "cron", "value" .= toJSON cs]
+  toJSON (Cron cs (Just offset)) = object ["type" .= String "cron", "value" .= toJSON cs, "utc-offset" .= (show offset)]
+  toJSON (Cron cs Nothing) = object ["type" .= String "cron", "value" .= toJSON cs]
   toJSON (AdHoc (Just ts)) = object ["type" .= String "adhoc", "value" .= toJSON ts]
   toJSON (AdHoc Nothing) = object ["type" .= String "adhoc"]
+
+-- convertUtcOffsetToTimeZone can take an offset in any one of
+-- the following formats:
+-- HHMM,HH:MM,(+/-)HHMM
+-- If the length of the offset is 4, then it's assumed that it's a
+-- positive offset.
+convertUtcOffsetToTimeZone :: String -> Either String TimeZone
+convertUtcOffsetToTimeZone offset
+  | length offset == 4 = convertUtcOffsetToTimeZone ('+':offset)
+convertUtcOffsetToTimeZone ('+':h1:h2:m1:m2:"")
+  | and [(isDigit h1),(isDigit h2),(isDigit m1),(isDigit m2)] =
+  let mins = (10 * (digitToInt h1) + (digitToInt h2)) * 60
+             + (10 * (digitToInt m1) + (digitToInt m2))
+  in Right $ TimeZone mins False ('+':h1:h2:m1:m2:"")
+  | otherwise = Left "Invalid TimeZone Format"
+convertUtcOffsetToTimeZone ('-':h1:h2:m1:m2:"") =
+  case convertUtcOffsetToTimeZone ('+':h1:h2:m1:m2:"") of
+    Left msg -> Left msg
+    Right (TimeZone mins False offset) -> Right (TimeZone (-1 * mins) False offset)
+convertUtcOffsetToTimeZone _ = Left "Invalid TimeZone Format"
+
+instance FromJSON TimeZone where
+  parseJSON = withText "TimeZone" $ \o ->
+    either fail pure $ convertUtcOffsetToTimeZone $ T.unpack o
+
+instance ToJSON TimeZone where
+  toJSON (TimeZone _ _ offset) = String . T.pack $ offset
 
 data CreateScheduledTrigger
   = CreateScheduledTrigger
@@ -88,6 +122,7 @@ instance FromJSON CreateScheduledTrigger where
       stSchedule <- o .: "schedule"
       stRetryConf <- o .:? "retry_conf" .!= defaultRetryConfST
       stHeaders <- o .:? "headers" .!= []
+
       pure CreateScheduledTrigger {..}
 
 $(deriveToJSON (aesonDrop 2 snakeCase){omitNothingFields=True} ''CreateScheduledTrigger)

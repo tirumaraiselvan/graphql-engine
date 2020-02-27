@@ -22,6 +22,7 @@ import           Data.Vector                   (Vector)
 import           GHC.Generics                  ((:*:) (..), (:+:) (..), Generic (..), K1 (..),
                                                 M1 (..), U1 (..), V1)
 import           System.Cron.Types
+import           Data.Time.LocalTime (TimeZone(..))
 
 import           Hasura.Incremental.Select
 
@@ -166,6 +167,8 @@ instance Cacheable N.URIAuth where unchanged _ = (==)
 instance Cacheable DiffTime where unchanged _ = (==)
 instance Cacheable NominalDiffTime where unchanged _ = (==)
 instance Cacheable UTCTime where unchanged _ = (==)
+instance Cacheable TimeZone where unchanged _ = (==)
+
 
 -- instances for CronSchedule from package `cron`
 instance Cacheable StepField

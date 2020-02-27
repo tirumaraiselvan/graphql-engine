@@ -22,6 +22,7 @@ import qualified Data.HashMap.Strict              as M
 import           Data.Aeson
 import           Data.Aeson.Casing
 import           Data.Aeson.TH
+import           Data.Time.LocalTime (TimeZone(..))
 
 import           Hasura.Incremental               (Cacheable)
 import           Hasura.RQL.DDL.ComputedField
@@ -37,6 +38,8 @@ import           Hasura.RQL.Types.RemoteSchema
 import           Hasura.RQL.Types.SchemaCache
 import           Hasura.RQL.Types.ScheduledTrigger
 import           Hasura.SQL.Types
+
+import qualified Database.PG.Query             as Q
 
 newtype CatalogForeignKey
   = CatalogForeignKey
