@@ -52,7 +52,7 @@ defaultRetryConfST =
   , rcstTolerance = 21600 -- 6 hours
   }
 
-data ScheduleType = Cron CronSchedule | AdHoc (Maybe UTCTime)
+data ScheduleType = Cron CronSchedule (Maybe TimeZone) | AdHoc (Maybe UTCTime)
   deriving (Show, Eq, Generic)
 
 instance NFData ScheduleType
@@ -63,12 +63,13 @@ instance FromJSON ScheduleType where
     withObject "ScheduleType" $ \o -> do
       type' <- o .: "type"
       case type' of
-        String "cron" -> Cron <$> o .: "value"
+        String "cron" -> Cron <$> o .: "value" <*> o .:? "utc-offset"
         String "adhoc" -> AdHoc <$> o .:? "value"
         _ -> fail "expected type to be cron or adhoc"
 
 instance ToJSON ScheduleType where
-  toJSON (Cron cs) = object ["type" .= String "cron", "value" .= toJSON cs]
+  toJSON (Cron cs (Just offset)) = object ["type" .= String "cron", "value" .= toJSON cs, "utc-offset" .= (show offset)]
+  toJSON (Cron cs Nothing) = object ["type" .= String "cron", "value" .= toJSON cs]
   toJSON (AdHoc (Just ts)) = object ["type" .= String "adhoc", "value" .= toJSON ts]
   toJSON (AdHoc Nothing) = object ["type" .= String "adhoc"]
 
@@ -94,12 +95,6 @@ instance FromJSON TimeZone where
 instance ToJSON TimeZone where
   toJSON (TimeZone _ _ offset) = String . T.pack $ offset
 
-instance Q.ToPrepArg TimeZone where
-  toPrepVal tz = Q.toPrepVal tz
-
--- instance Q.FromCol TimeZone where
---   fromCol = \o ->
-
 data CreateScheduledTrigger
   = CreateScheduledTrigger
   { stName           :: !ET.TriggerName
@@ -108,7 +103,6 @@ data CreateScheduledTrigger
   , stPayload        :: !(Maybe J.Value)
   , stRetryConf      :: !RetryConfST
   , stHeaders        :: ![ET.HeaderConf]
-  , stUtcOffset      :: !(Maybe TimeZone)
   } deriving (Show, Eq, Generic)
 
 instance NFData CreateScheduledTrigger
@@ -123,7 +117,6 @@ instance FromJSON CreateScheduledTrigger where
       stSchedule <- o .: "schedule"
       stRetryConf <- o .:? "retry_conf" .!= defaultRetryConfST
       stHeaders <- o .:? "headers" .!= []
-      stUtcOffset <- o .:? "utc_offset"
 
       pure CreateScheduledTrigger {..}
 

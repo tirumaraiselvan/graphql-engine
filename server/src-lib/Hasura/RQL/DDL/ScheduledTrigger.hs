@@ -12,6 +12,8 @@ module Hasura.RQL.DDL.ScheduledTrigger
   , resolveScheduledTrigger
   ) where
 
+import           Data.Time.LocalTime (TimeZone(..))
+
 import           Hasura.Db
 import           Hasura.EncJSON
 import           Hasura.Prelude
@@ -44,10 +46,10 @@ addScheduledTriggerToCatalog CreateScheduledTrigger {..} = liftTx $ do
   Q.unitQE defaultTxErrorHandler
     [Q.sql|
       INSERT into hdb_catalog.hdb_scheduled_trigger
-        (name, webhook_conf, schedule_conf, payload, retry_conf, header_conf, utc_offset)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+        (name, webhook_conf, schedule_conf, payload, retry_conf, header_conf)
+      VALUES ($1, $2, $3, $4, $5, $6)
     |] (stName, Q.AltJ stWebhook, Q.AltJ stSchedule, Q.AltJ <$> stPayload, Q.AltJ stRetryConf
-       ,Q.AltJ stHeaders, stUtcOffset) False
+       ,Q.AltJ stHeaders) False
   case stSchedule of
     AdHoc (Just timestamp) -> Q.unitQE defaultTxErrorHandler
       [Q.sql|
@@ -55,11 +57,17 @@ addScheduledTriggerToCatalog CreateScheduledTrigger {..} = liftTx $ do
           (name, scheduled_time)
          VALUES ($1, $2)
       |] (stName, timestamp) False
-    Cron cron -> do
+    Cron cron Nothing -> do
       currentTime <- liftIO C.getCurrentTime
-      let timeWithOffset = C.addUTCTime 19800 currentTime
-          scheduleTimesWithOffset = generateScheduleTimes timeWithOffset 100 cron -- generate next 100 events
-          scheduleTimesinUtc = map (\t -> C.addUTCTime (-19800) t) scheduleTimesWithOffset
+      let scheduleTimes = generateScheduleTimes currentTime 100 cron -- generate next 100 events
+          events = map (ScheduledEventSeed stName) scheduleTimes
+      insertScheduledEvents events
+    Cron cron (Just (TimeZone mins _ _)) -> do
+      currentTime <- liftIO C.getCurrentTime
+      let secsOffset = realToFrac $ (mins * 60)
+          currentTimeWithOffset = C.addUTCTime secsOffset currentTime
+          scheduleTimesWithOffset = generateScheduleTimes currentTimeWithOffset 100 cron -- generate next 100 events
+          scheduleTimesinUtc = map (\t -> C.addUTCTime (-1 * secsOffset) t) scheduleTimesWithOffset
           events = map (ScheduledEventSeed stName) scheduleTimesinUtc
       insertScheduledEvents events
     _ -> pure ()

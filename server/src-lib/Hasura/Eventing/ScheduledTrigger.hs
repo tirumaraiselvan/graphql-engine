@@ -206,7 +206,8 @@ generateScheduledEventsFrom startTime ScheduledTriggerInfo{..} =
   let events =
         case stiSchedule of
           AdHoc _ -> empty -- ad-hoc scheduled events are created through 'create_scheduled_event' API
-          Cron cron -> generateScheduleTimes startTime 100 cron -- by default, generate next 100 events
+          Cron cron (Just tz) -> generateScheduleTimes startTime 100 cron -- by default, generate next 100 events
+          Cron cron Nothing -> generateScheduleTimes startTime 100 cron -- by default,
    in map (ScheduledEventSeed stiName) events
 
 -- | Generates next @n events starting @from according to 'CronSchedule'

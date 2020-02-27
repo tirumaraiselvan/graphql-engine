@@ -287,7 +287,6 @@ buildSchemaCacheRule = proc (catalogMetadata, invalidationKeys) -> do
                        _cstPayload
                        (fromMaybe defaultRetryConfST _cstRetryConf)
                        (fromMaybe [] _cstHeaderConf)
-                       _cstUtcOffset
                   definition = toJSON q
                   triggerName = triggerNameToTxt _cstName
                   metadataObject = MetadataObject (MOScheduledTrigger _cstName) definition
