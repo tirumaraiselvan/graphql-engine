@@ -8,7 +8,6 @@ module Hasura.RQL.Types.ScheduledTrigger
   , RetryConfST(..)
   , formatTime'
   , defaultRetryConfST
-  , UtcOffset(..)
   ) where
 
 import           Data.Time.Clock
@@ -17,12 +16,14 @@ import           Data.Time.Format
 import           Data.Aeson
 import           Data.Aeson.Casing
 import           Data.Aeson.TH
+import           Data.Char
 import           Hasura.Prelude
 import           System.Cron.Types
 import           Hasura.Incremental
 import           Language.Haskell.TH.Syntax (Lift)
 import           Hasura.RQL.Types.Common    (NonEmptyText (..))
 import           Hasura.SQL.Types
+import           Data.Time.LocalTime (TimeZone(..),minutesToTimeZone)
 
 import qualified Data.Text                     as T
 import qualified Data.Aeson                    as J
@@ -71,8 +72,33 @@ instance ToJSON ScheduleType where
   toJSON (AdHoc (Just ts)) = object ["type" .= String "adhoc", "value" .= toJSON ts]
   toJSON (AdHoc Nothing) = object ["type" .= String "adhoc"]
 
-newtype UtcOffset = UtcOffset { unUtcOffset :: NonEmptyText }
-  deriving (Show, Eq, Hashable, Lift, DQuote, FromJSON, ToJSON, ToJSONKey, Q.FromCol, Q.ToPrepArg, Generic, Arbitrary, NFData, Cacheable)
+convertUtcOffsetToTimeZone :: String -> Either String TimeZone
+convertUtcOffsetToTimeZone offset
+  | length offset == 4 = convertUtcOffsetToTimeZone ('+':offset)
+convertUtcOffsetToTimeZone ('+':h1:h2:m1:m2:"")
+  | and [(isDigit h1),(isDigit h2),(isDigit m1),(isDigit m2)] =
+  let mins = (10 * (digitToInt h1) + (digitToInt h2)) * 60
+             + (10 * (digitToInt m1) + (digitToInt m2))
+  in Right $ TimeZone mins False ('+':h1:h2:m1:m2:"")
+  | otherwise = Left "Invalid TimeZone Format"
+convertUtcOffsetToTimeZone ('-':h1:h2:m1:m2:"") =
+  case convertUtcOffsetToTimeZone ('+':h1:h2:m1:m2:"") of
+    Left msg -> Left msg
+    Right (TimeZone mins False offset) -> Right (TimeZone (-1 * mins) False offset)
+convertUtcOffsetToTimeZone _ = Left "Invalid TimeZone Format"
+
+instance FromJSON TimeZone where
+  parseJSON = withText "TimeZone" $ \o ->
+    either fail pure $ convertUtcOffsetToTimeZone $ T.unpack o
+
+instance ToJSON TimeZone where
+  toJSON (TimeZone _ _ offset) = String . T.pack $ offset
+
+instance Q.ToPrepArg TimeZone where
+  toPrepVal tz = Q.toPrepVal tz
+
+-- instance Q.FromCol TimeZone where
+--   fromCol = \o ->
 
 data CreateScheduledTrigger
   = CreateScheduledTrigger
@@ -82,7 +108,7 @@ data CreateScheduledTrigger
   , stPayload        :: !(Maybe J.Value)
   , stRetryConf      :: !RetryConfST
   , stHeaders        :: ![ET.HeaderConf]
-  , stUtcOffset      :: !(Maybe UtcOffset)
+  , stUtcOffset      :: !(Maybe TimeZone)
   } deriving (Show, Eq, Generic)
 
 instance NFData CreateScheduledTrigger
