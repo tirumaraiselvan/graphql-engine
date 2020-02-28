@@ -213,18 +213,15 @@ generateScheduledEventsFrom startTime ScheduledTriggerInfo{..} =
 
 addOffsetToUTCTime :: UTCTime -> TimeZone -> UTCTime
 addOffsetToUTCTime ut (TimeZone mins _ _) =
-  addUTCTime (secsOffset mins) ut
-  where
-    secsOffset :: Int -> NominalDiffTime
-    secsOffset mins = realToFrac $ (mins * 60)
+  addUTCTime (realToFrac $ (mins * 60)) ut
 
 -- | Generates next @n events starting @from according to 'CronSchedule'
 -- When Timezone is not Nothing, the offset will be added to the `from` value
 -- then the cron schedules are generated and then the offset will be subtracted
 -- from the generated timestamps.
 generateScheduleTimes :: UTCTime -> Maybe TimeZone ->  Int -> CronSchedule -> [UTCTime]
-generateScheduleTimes from tz n cron =
-  case tz of
+generateScheduleTimes from timezone n cron =
+  case timezone of
     Nothing ->   take n $ go from
     Just tz@(TimeZone mins _ _) ->
       map (\t -> addOffsetToUTCTime t (inverseTimeZone mins)) $ take n $ go $ addOffsetToUTCTime from tz

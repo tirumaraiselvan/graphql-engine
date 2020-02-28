@@ -12,8 +12,6 @@ module Hasura.RQL.DDL.ScheduledTrigger
   , resolveScheduledTrigger
   ) where
 
-import           Data.Time.LocalTime (TimeZone(..))
-
 import           Hasura.Db
 import           Hasura.EncJSON
 import           Hasura.Prelude
