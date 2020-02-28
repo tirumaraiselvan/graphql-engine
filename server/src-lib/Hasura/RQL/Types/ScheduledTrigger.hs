@@ -20,9 +20,6 @@ import           Data.Char
 import           Hasura.Prelude
 import           System.Cron.Types
 import           Hasura.Incremental
-import           Language.Haskell.TH.Syntax (Lift)
-import           Hasura.RQL.Types.Common    (NonEmptyText (..))
-import           Hasura.SQL.Types
 import           Data.Time.LocalTime (TimeZone(..),minutesToTimeZone)
 
 import qualified Data.Text                     as T
@@ -73,29 +70,33 @@ instance ToJSON ScheduleType where
   toJSON (AdHoc (Just ts)) = object ["type" .= String "adhoc", "value" .= toJSON ts]
   toJSON (AdHoc Nothing) = object ["type" .= String "adhoc"]
 
--- convertUtcOffsetToTimeZone can take an offset in any one of
+-- convertUTCOffsetToTimeZone can take an offset in any one of
 -- the following formats:
 -- HHMM,HH:MM,(+/-)HHMM
 -- If the length of the offset is 4, then it's assumed that it's a
 -- positive offset.
-convertUtcOffsetToTimeZone :: String -> Either String TimeZone
-convertUtcOffsetToTimeZone offset
-  | length offset == 4 = convertUtcOffsetToTimeZone ('+':offset)
-convertUtcOffsetToTimeZone ('+':h1:h2:m1:m2:"")
+convertUTCOffsetToTimeZone :: String -> Either String TimeZone
+convertUTCOffsetToTimeZone offset
+  | length offset == 4 = convertUTCOffsetToTimeZone ('+':offset)
+convertUTCOffsetToTimeZone (h1:h2:':':m1:m2:"") =
+  convertUTCOffsetToTimeZone('+':h1:h2:m1:m2:"")
+convertUTCOffsetToTimeZone (p:h1:h2:':':m1:m2:"") =
+  convertUTCOffsetToTimeZone(p:h1:h2:m1:m2:"")
+convertUTCOffsetToTimeZone ('+':h1:h2:m1:m2:"")
   | and [(isDigit h1),(isDigit h2),(isDigit m1),(isDigit m2)] =
   let mins = (10 * (digitToInt h1) + (digitToInt h2)) * 60
              + (10 * (digitToInt m1) + (digitToInt m2))
   in Right $ TimeZone mins False ('+':h1:h2:m1:m2:"")
   | otherwise = Left "Invalid TimeZone Format"
-convertUtcOffsetToTimeZone ('-':h1:h2:m1:m2:"") =
-  case convertUtcOffsetToTimeZone ('+':h1:h2:m1:m2:"") of
+convertUTCOffsetToTimeZone ('-':h1:h2:m1:m2:"") =
+  case convertUTCOffsetToTimeZone ('+':h1:h2:m1:m2:"") of
     Left msg -> Left msg
-    Right (TimeZone mins False offset) -> Right (TimeZone (-1 * mins) False offset)
-convertUtcOffsetToTimeZone _ = Left "Invalid TimeZone Format"
+    Right (TimeZone mins isSummerOnly offset) -> Right (TimeZone (-1 * mins) isSummerOnly offset)
+convertUTCOffsetToTimeZone _ = Left "Invalid TimeZone Format"
 
 instance FromJSON TimeZone where
   parseJSON = withText "TimeZone" $ \o ->
-    either fail pure $ convertUtcOffsetToTimeZone $ T.unpack o
+    either fail pure $ convertUTCOffsetToTimeZone $ T.unpack o
 
 instance ToJSON TimeZone where
   toJSON (TimeZone _ _ offset) = String . T.pack $ offset
