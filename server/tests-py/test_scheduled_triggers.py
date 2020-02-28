@@ -30,12 +30,13 @@ class TestScheduledTriggerCron(object):
     webhook_payload = {"foo":"baz"}
     webhook_path = "/hello"
     url = '/v1/query'
-    utc_offset = "+0530"
+    timezone_region = "Asia/Kolkata"
+    offset_at_timezone_region = "+0530"
 
     def test_create_cron_schedule_triggers_with_offset(self,hge_ctx):
         # setting the test to be after 30 mins, to make sure that
         # any of the events are not triggered.
-        local_now = datetime.now().astimezone(timezone('Asia/Kolkata'))
+        local_now = datetime.now().astimezone(timezone(self.timezone_region))
         min_after_30_mins = (local_now + timedelta(minutes=30)).minute
         TestScheduledTriggerCron.cron_schedule = "{} * * * *".format(min_after_30_mins)
 
@@ -47,7 +48,7 @@ class TestScheduledTriggerCron(object):
                 "schedule":{
                     "type":"cron",
                     "value":self.cron_schedule,
-                    "utc-offset":"+0530"
+                    "utc-offset":self.offset_at_timezone_region
                 },
                 "headers":[
                     {
@@ -62,7 +63,7 @@ class TestScheduledTriggerCron(object):
         if hge_ctx.hge_key is not None:
             headers['X-Hasura-Admin-Secret'] = hge_ctx.hge_key
         cron_st_code,cron_st_resp,_ = hge_ctx.anyq(self.url,cron_st_api_query,headers)
-        TestScheduledTriggerCron.init_time_with_offset = datetime.now().astimezone(timezone('Asia/Kolkata')) # the cron events will be generated based on the current time, they will not be exactly the same though(the server now and now here)
+        TestScheduledTriggerCron.init_time_with_offset = datetime.now().astimezone(timezone(self.timezone_region)) # the cron events will be generated based on the current time, they will not be exactly the same though(the server now and now here)
         assert cron_st_code == 200
         assert cron_st_resp['message'] == 'success'
 
@@ -73,14 +74,14 @@ class TestScheduledTriggerCron(object):
             dt = iter.next(datetime)
             expected_schedule_timestamps.append(datetime.timestamp(dt))
         sql = '''
-    select timezone('Asia/Kolkata',scheduled_time) as scheduled_time
+    select timezone('{}',scheduled_time) as scheduled_time
         from hdb_catalog.hdb_scheduled_events where
         name = '{}' order by scheduled_time asc;
     '''
         q = {
             "type":"run_sql",
             "args":{
-                "sql":sql.format(self.cron_trigger_with_offset)
+                "sql":sql.format(self.timezone_region, self.cron_trigger_with_offset)
             }
         }
         st,resp = hge_ctx.v1q(q)
