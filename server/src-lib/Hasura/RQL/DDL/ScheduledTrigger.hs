@@ -55,7 +55,6 @@ addScheduledTriggerToCatalog CreateScheduledTrigger {..} = liftTx $ do
           (name, scheduled_time)
          VALUES ($1, $2)
       |] (stName, timestamp) False
-    -- when no timezone, then generate events keeping UTC as seed time
     Cron cron tz -> do
       currentTime <- liftIO C.getCurrentTime
       let scheduleTimes = generateScheduleTimes currentTime tz 100 cron -- generate next 100 events

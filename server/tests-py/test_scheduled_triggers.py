@@ -5,6 +5,7 @@ from datetime import datetime,timedelta
 from croniter import croniter
 from validate import validate_event_webhook,validate_event_headers
 from queue import Empty
+from pytz import timezone
 import time
 
 def stringify_datetime(dt):
@@ -25,9 +26,72 @@ def get_events_of_scheduled_trigger(hge_ctx,trigger_name):
 class TestScheduledTriggerCron(object):
 
     cron_trigger_name = "a_scheduled_trigger"
+    cron_trigger_with_offset = cron_trigger_name + "_offset"
     webhook_payload = {"foo":"baz"}
     webhook_path = "/hello"
     url = '/v1/query'
+    utc_offset = "+0530"
+
+    def test_create_cron_schedule_triggers_with_offset(self,hge_ctx):
+        # setting the test to be after 30 mins, to make sure that
+        # any of the events are not triggered.
+        local_now = datetime.now().astimezone(timezone('Asia/Kolkata'))
+        min_after_30_mins = (local_now + timedelta(minutes=30)).minute
+        TestScheduledTriggerCron.cron_schedule = "{} * * * *".format(min_after_30_mins)
+
+        cron_st_api_query = {
+            "type":"create_scheduled_trigger",
+            "args":{
+                "name":self.cron_trigger_with_offset,
+                "webhook":"http://127.0.0.1:5594" + "/foo",
+                "schedule":{
+                    "type":"cron",
+                    "value":self.cron_schedule,
+                    "utc-offset":"+0530"
+                },
+                "headers":[
+                    {
+                        "name":"foo",
+                        "value":"baz"
+                    }
+                ],
+                "payload":self.webhook_payload
+            }
+        }
+        headers = {}
+        if hge_ctx.hge_key is not None:
+            headers['X-Hasura-Admin-Secret'] = hge_ctx.hge_key
+        cron_st_code,cron_st_resp,_ = hge_ctx.anyq(self.url,cron_st_api_query,headers)
+        TestScheduledTriggerCron.init_time_with_offset = datetime.now().astimezone(timezone('Asia/Kolkata')) # the cron events will be generated based on the current time, they will not be exactly the same though(the server now and now here)
+        assert cron_st_code == 200
+        assert cron_st_resp['message'] == 'success'
+
+    def test_check_generated_cron_scheduled_events_with_offset(self,hge_ctx):
+        expected_schedule_timestamps = []
+        iter = croniter(self.cron_schedule,self.init_time_with_offset)
+        for i in range(100):
+            dt = iter.next(datetime)
+            expected_schedule_timestamps.append(datetime.timestamp(dt))
+        sql = '''
+    select timezone('Asia/Kolkata',scheduled_time) as scheduled_time
+        from hdb_catalog.hdb_scheduled_events where
+        name = '{}' order by scheduled_time asc;
+    '''
+        q = {
+            "type":"run_sql",
+            "args":{
+                "sql":sql.format(self.cron_trigger_with_offset)
+            }
+        }
+        st,resp = hge_ctx.v1q(q)
+        assert st == 200
+        ts_resp = resp['result'][1:]
+        assert len(ts_resp) == 100 # 100 events are generated in a cron ST
+        db_timestamps = []
+        for ts in ts_resp:
+            datetime_ts = datetime.strptime(ts[0],"%Y-%m-%d %H:%M:%S")
+            db_timestamps.append(datetime.timestamp(datetime_ts))
+        assert db_timestamps == expected_schedule_timestamps
 
     def test_create_cron_schedule_triggers(self,hge_ctx):
         # setting the test to be after 30 mins, to make sure that
@@ -90,14 +154,15 @@ class TestScheduledTriggerCron(object):
         assert future_schedule_timestamps == scheduled_events_ts
 
     def test_delete_cron_scheduled_trigger(self,hge_ctx):
-        q = {
-            "type":"delete_scheduled_trigger",
-            "args":{
-                "name":self.cron_trigger_name
+        for trigger_name in [self.cron_trigger_name,self.cron_trigger_with_offset]:
+            q = {
+                "type":"delete_scheduled_trigger",
+                "args":{
+                    "name":trigger_name
+                }
             }
-        }
-        st,resp = hge_ctx.v1q(q)
-        assert st == 200,resp
+            st,resp = hge_ctx.v1q(q)
+            assert st == 200,resp
 
 class ScheduledEventNotFound(Exception):
     pass
