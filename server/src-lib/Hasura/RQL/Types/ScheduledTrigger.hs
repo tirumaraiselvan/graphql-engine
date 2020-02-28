@@ -91,7 +91,7 @@ convertUTCOffsetToTimeZone ('+':h1:h2:m1:m2:"")
 convertUTCOffsetToTimeZone ('-':h1:h2:m1:m2:"") =
   case convertUTCOffsetToTimeZone ('+':h1:h2:m1:m2:"") of
     Left msg -> Left msg
-    Right (TimeZone mins isSummerOnly offset) -> Right (TimeZone (-1 * mins) isSummerOnly offset)
+    Right (TimeZone mins isSummerOnly ('+':offset)) -> Right (TimeZone (-1 * mins) isSummerOnly ('-':offset))
 convertUTCOffsetToTimeZone _ = Left "Invalid TimeZone Format"
 
 instance FromJSON TimeZone where

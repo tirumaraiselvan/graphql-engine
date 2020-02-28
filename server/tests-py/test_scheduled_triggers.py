@@ -31,7 +31,7 @@ class TestScheduledTriggerCron(object):
     webhook_path = "/hello"
     url = '/v1/query'
     timezone_region = "Asia/Kolkata"
-    offset_at_timezone_region = "+0530"
+    offset_at_timezone_region = "+05:30"
 
     def test_create_cron_schedule_triggers_with_offset(self,hge_ctx):
         # setting the test to be after 30 mins, to make sure that
