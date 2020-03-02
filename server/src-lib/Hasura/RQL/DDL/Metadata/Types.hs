@@ -425,7 +425,24 @@ replaceMetadataToOrdJSON ( ReplaceMetadata
                   ] <> catMaybes [maybeCommentToMaybeOrdPair comment]
 
     scheduledTriggerQToOrdJSON :: CreateScheduledTrigger -> AO.Value
-    scheduledTriggerQToOrdJSON = AO.toOrdered
+    scheduledTriggerQToOrdJSON (CreateScheduledTrigger name webhook schedule payload retryConf headers) =
+      AO.object $ [ ("name", AO.toOrdered name)
+                  , ("webhook", AO.toOrdered webhook)
+                  , ("schedule", AO.toOrdered schedule)
+                  ] <> catMaybes [ maybeAnyToMaybeOrdPair "payload" AO.toOrdered payload
+                                 , maybeAnyToMaybeOrdPair "retry_conf" AO.toOrdered (maybeRetryConfiguration retryConf)
+                                 , maybeAnyToMaybeOrdPair "headers" AO.toOrdered (maybeHeader headers)]
+      where
+        maybeRetryConfiguration :: RetryConfST -> Maybe RetryConfST
+        maybeRetryConfiguration rc = if retryConf == defaultRetryConfST
+          then Nothing
+          else Just rc
+        maybeHeader :: [HeaderConf] -> Maybe [HeaderConf]
+        maybeHeader headerConf = if headerConf == []
+          then Nothing
+          else Just headerConf
+
+
 
     customTypesToOrdJSON :: CustomTypes -> AO.Value
     customTypesToOrdJSON (CustomTypes inpObjs objs scalars enums) =
