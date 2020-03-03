@@ -433,16 +433,9 @@ replaceMetadataToOrdJSON ( ReplaceMetadata
                                  , maybeAnyToMaybeOrdPair "retry_conf" AO.toOrdered (maybeRetryConfiguration retryConf)
                                  , maybeAnyToMaybeOrdPair "headers" AO.toOrdered (maybeHeader headers)]
       where
-        maybeRetryConfiguration :: RetryConfST -> Maybe RetryConfST
-        maybeRetryConfiguration rc = if retryConf == defaultRetryConfST
-          then Nothing
-          else Just rc
-        maybeHeader :: [HeaderConf] -> Maybe [HeaderConf]
-        maybeHeader headerConf = if headerConf == []
-          then Nothing
-          else Just headerConf
+        maybeRetryConfiguration rc = if rc == defaultRetryConfST then Nothing else Just rc
 
-
+        maybeHeader headerConf = if headerConf == [] then Nothing else Just headerConf
 
     customTypesToOrdJSON :: CustomTypes -> AO.Value
     customTypesToOrdJSON (CustomTypes inpObjs objs scalars enums) =
