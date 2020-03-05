@@ -170,7 +170,17 @@ data HTTPRespExtra (a :: TriggerTypes)
   , _hreContext  :: Maybe ExtraLogContext
   }
 
-$(J.deriveToJSON (J.aesonDrop 4 J.snakeCase){J.omitNothingFields=True} ''HTTPRespExtra)
+instance J.ToJSON (HTTPRespExtra 'Scheduled) where
+  toJSON (HTTPRespExtra resp ctxt) = do
+    case resp of
+      Left errResp -> J.object ["response" J..= J.toJSON errResp, "context" J..= J.toJSON ctxt]
+      Right rsp -> J.object ["response" J..= J.toJSON rsp, "context" J..= J.toJSON ctxt]
+
+instance J.ToJSON (HTTPRespExtra 'Event) where
+  toJSON (HTTPRespExtra resp ctxt) = do
+    case resp of
+      Left errResp -> J.object ["response" J..= J.toJSON errResp, "context" J..= J.toJSON ctxt]
+      Right rsp -> J.object ["response" J..= J.toJSON rsp, "context" J..= J.toJSON ctxt]
 
 instance ToEngineLog (HTTPRespExtra 'Event) Hasura where
   toEngineLog resp = (LevelInfo, eventTriggerLogType, J.toJSON resp)
