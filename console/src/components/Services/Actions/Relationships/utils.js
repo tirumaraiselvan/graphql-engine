@@ -90,3 +90,6 @@ export const removeTypeRelationship = (types, typename, relName) => {
     return t;
   });
 };
+
+
+
