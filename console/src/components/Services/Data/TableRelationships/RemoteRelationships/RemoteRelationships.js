@@ -13,11 +13,14 @@ const RemoteRelationships = ({
 }) => {
   // restructure existing relationships to the state structure
   const existingRemoteRelationships = tableSchema.remote_relationships.map(
-    rr => {
+    ({ configuration, definition }) => {
+      // remote schema found in definition !4485
+      const config = configuration || definition || {};
       return parseRemoteRelationship({
-        remote_schema: rr.configuration.remote_schema,
-        remote_field: rr.configuration.remote_field,
-        name: rr.configuration.name,
+        // todo check if needs to be defaulted with'' or not
+        remote_schema: config?.remote_schema || '',
+        remote_field: config?.remote_field || '',
+        name: config?.name || '',
       });
     }
   );
