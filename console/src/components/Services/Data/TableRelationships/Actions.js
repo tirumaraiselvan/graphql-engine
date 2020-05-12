@@ -116,6 +116,7 @@ export const saveRemoteRelationship = (
         parseRemoteRelationship({
           remote_schema: existingRelationship.definition.remote_schema,
           remote_field: existingRelationship.definition.remote_field,
+          name: existingRelationship.remote_relationship_name,
         }),
         table
       );
