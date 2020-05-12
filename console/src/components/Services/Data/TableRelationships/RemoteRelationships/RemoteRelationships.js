@@ -15,9 +15,9 @@ const RemoteRelationships = ({
   const existingRemoteRelationships = tableSchema.remote_relationships.map(
     ({ definition = {}, remote_relationship_name }) => {
       return parseRemoteRelationship({
-        remote_schema: definition?.remote_schema || 'Invalid Remote Schema!',
-        remote_field: definition?.remote_field || '',
-        name: remote_relationship_name || 'Invalid Relationship',
+        remote_schema: definition.remote_schema,
+        remote_field: definition.remote_field,
+        name: remote_relationship_name,
       });
     }
   );
