@@ -1,5 +1,5 @@
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE NondecreasingIndentation #-}
+{-# LANGUAGE RankNTypes               #-}
 
 module Hasura.GraphQL.Transport.WebSocket.Server
   ( WSId(..)
@@ -39,9 +39,9 @@ import qualified Data.TByteString                     as TBS
 import qualified Data.UUID                            as UUID
 import qualified Data.UUID.V4                         as UUID
 import           Data.Word                            (Word16)
+import           GHC.AssertNF
 import           GHC.Int                              (Int64)
 import           Hasura.Prelude
-import           GHC.AssertNF
 import qualified ListT
 import qualified Network.WebSockets                   as WS
 import qualified StmContainers.Map                    as STMMap
@@ -167,7 +167,7 @@ createWSServer logger = do
   return $ WSServer logger serverStatus
 
 closeAll :: WSServer a -> BL.ByteString -> IO ()
-closeAll (WSServer (L.Logger writeLog) serverStatus) msg = do
+closeAll (WSServer (L.Logger writeLog _) serverStatus) msg = do
   writeLog $ L.debugT "closing all connections"
   conns <- STM.atomically $ flushConnMap serverStatus
   closeAllWith (flip closeConn) msg conns
@@ -221,7 +221,7 @@ createServerApp
   -> WS.PendingConnection
   -> m ()
 {-# INLINE createServerApp #-}
-createServerApp (WSServer logger@(L.Logger writeLog) serverStatus) wsHandlers !pendingConn = do
+createServerApp (WSServer logger@(L.Logger writeLog _) serverStatus) wsHandlers !pendingConn = do
   wsId <- WSId <$> liftIO UUID.nextRandom
   writeLog $ WSLog wsId EConnectionRequest Nothing
   status <- liftIO $ STM.readTVarIO serverStatus
@@ -235,13 +235,13 @@ createServerApp (WSServer logger@(L.Logger writeLog) serverStatus) wsHandlers !p
       onReject wsId shuttingDownReject
 
   where
-    -- It's not clear what the unexpected exception handling story here should be. So at 
+    -- It's not clear what the unexpected exception handling story here should be. So at
     -- least log properly and re-raise:
     logUnexpectedExceptions = handle $ \(e :: SomeException) -> do
       writeLog $ L.UnstructuredLog L.LevelError $ fromString $
         "Unexpected exception raised in websocket. Please report this as a bug: "<>show e
       throwIO e
-      
+
     shuttingDownReject =
       WS.RejectRequest 503
                         "Service Unavailable"
@@ -273,7 +273,7 @@ createServerApp (WSServer logger@(L.Logger writeLog) serverStatus) wsHandlers !p
 
       -- ensure we clean up connMap even if an unexpected exception is raised from our worker
       -- threads, or an async exception is raised somewhere in the body here:
-      bracket 
+      bracket
         whenAcceptingInsertConn
         (onConnClose wsConn)
         $ \case
@@ -286,10 +286,10 @@ createServerApp (WSServer logger@(L.Logger writeLog) serverStatus) wsHandlers !p
         AcceptingConns _ -> do
           let rcv = forever $ do
                 -- Process all messages serially (important!), in a separate thread:
-                msg <- liftIO $ 
+                msg <- liftIO $
                   -- Re-throw "receiveloop: resource vanished (Connection reset by peer)" :
-                  --   https://github.com/yesodweb/wai/blob/master/warp/Network/Wai/Handler/Warp/Recv.hs#L112 
-                  -- as WS exception signaling cleanup below. It's not clear why exactly this gets 
+                  --   https://github.com/yesodweb/wai/blob/master/warp/Network/Wai/Handler/Warp/Recv.hs#L112
+                  -- as WS exception signaling cleanup below. It's not clear why exactly this gets
                   -- raised occasionally; I suspect an equivalent handler is missing from WS itself.
                   -- Regardless this should be safe:
                   handleJust (guard . E.isResourceVanishedError) (\()-> throw WS.ConnectionClosed) $
@@ -332,7 +332,7 @@ createServerApp (WSServer logger@(L.Logger writeLog) serverStatus) wsHandlers !p
 
 
 shutdown :: WSServer a -> IO ()
-shutdown (WSServer (L.Logger writeLog) serverStatus) = do
+shutdown (WSServer (L.Logger writeLog _) serverStatus) = do
   writeLog $ L.debugT "Shutting websockets server down"
   conns <- STM.atomically $ do
     conns <- flushConnMap serverStatus

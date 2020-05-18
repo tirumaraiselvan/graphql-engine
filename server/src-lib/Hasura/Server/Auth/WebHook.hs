@@ -99,7 +99,7 @@ mkUserInfoFromResp
   -> N.Status
   -> BL.ByteString
   -> m (UserInfo, Maybe UTCTime)
-mkUserInfoFromResp (Logger logger) url method statusCode respBody
+mkUserInfoFromResp (Logger logger _) url method statusCode respBody
   | statusCode == N.status200 =
     case eitherDecode respBody of
       Left e -> do

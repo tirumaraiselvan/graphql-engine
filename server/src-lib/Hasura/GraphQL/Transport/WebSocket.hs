@@ -201,7 +201,7 @@ data WSServerEnv
 
 onConn :: (MonadIO m)
        => L.Logger L.Hasura -> CorsPolicy -> WS.OnConnH m WSConnData
-onConn (L.Logger logger) corsPolicy wsId requestHead = do
+onConn (L.Logger logger _) corsPolicy wsId requestHead = do
   res <- runExceptT $ do
     errType <- checkPath
     let reqHdrs = WS.requestHeaders requestHead
@@ -513,7 +513,7 @@ onStop serverEnv wsConn (StopMsg opId) = do
 logWSEvent
   :: (MonadIO m)
   => L.Logger L.Hasura -> WSConn -> WSEvent -> m ()
-logWSEvent (L.Logger logger) wsConn wsEv = do
+logWSEvent (L.Logger logger _) wsConn wsEv = do
   userInfoME <- liftIO $ STM.readTVarIO userInfoR
   let (userVarsM, tokenExpM) = case userInfoME of
         CSInitialised userInfo tokenM _ -> ( Just $ _uiSession userInfo

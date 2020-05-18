@@ -35,6 +35,7 @@ import qualified System.Metrics                         as EKG
 import qualified System.Metrics.Json                    as EKG
 import qualified Text.Mustache                          as M
 import qualified Web.Spock.Core                         as Spock
+import qualified System.Log.FastLogger      as FL
 
 import           Hasura.EncJSON
 import           Hasura.GraphQL.Resolve.Action
@@ -537,6 +538,7 @@ mkWaiApp isoLevel logger sqlGenCtx enableAL pool ci httpManager mode corsCfg ena
             , slKind = "db_migrate"
             , slInfo = toJSON err
             }
+          liftIO $ FL.flushLogStr $ L.unLoggerSet logger
           liftIO exitFailure
       L.unLogger logger migrationResult
 

@@ -102,7 +102,7 @@ printYaml :: (A.ToJSON a, MonadIO m) => a -> m ()
 printYaml = liftIO . BC.putStrLn . Y.encode
 
 mkPGLogger :: Logger Hasura -> Q.PGLogger
-mkPGLogger (Logger logger) (Q.PLERetryMsg msg) =
+mkPGLogger (Logger logger _) (Q.PLERetryMsg msg) =
   logger $ PGLog LevelWarn msg
 
 
@@ -300,7 +300,7 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
     -- There is another hasura instance which is processing events and
     -- it will lock events to process them.
     -- So, unlocking all the locked events might re-deliver an event(due to #2).
-    prepareEvents pool (Logger logger) = do
+    prepareEvents pool (Logger logger _) = do
       liftIO $ logger $ mkGenericStrLog LevelInfo "event_triggers" "preparing data"
       res <- liftIO $ runTx pool (Q.ReadCommitted, Nothing) unlockAllEvents
       either printErrJExit return res
@@ -311,7 +311,7 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
     -- processed but not been marked as delivered in the db will be unlocked by `shutdownEvents`
     -- and will be processed when the events are proccessed next time.
     shutdownEvents :: Q.PGPool -> Logger Hasura -> EventEngineCtx -> IO ()
-    shutdownEvents pool (Logger logger) EventEngineCtx {..} = do
+    shutdownEvents pool (Logger logger _) EventEngineCtx {..} = do
       liftIO $ logger $ mkGenericStrLog LevelInfo "event_triggers" "unlocking events that are locked by the HGE"
       lockedEvents <- readTVarIO _eeCtxLockedEvents
       liftIO $ do
@@ -342,14 +342,14 @@ runHGEServer ServeOptions{..} InitCtx{..} initTime = do
     -- is terminated immediately.
     -- If the user hits CTRL-C (SIGINT), then the process is terminated immediately
     shutdownHandler :: Logger Hasura -> IO () -> EventEngineCtx -> Q.PGPool -> IO () -> IO ()
-    shutdownHandler (Logger logger) shutdownApp eeCtx pool closeSocket =
+    shutdownHandler l@(Logger logger _) shutdownApp eeCtx pool closeSocket =
       void $ Signals.installHandler
         Signals.sigTERM
         (Signals.CatchOnce shutdownSequence)
         Nothing
      where
       shutdownSequence = do
-        shutdownEvents pool (Logger logger) eeCtx
+        shutdownEvents pool l eeCtx
         closeSocket
         shutdownApp
         logShutdown

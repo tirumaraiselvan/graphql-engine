@@ -258,15 +258,19 @@ cleanLoggerCtx =
   FL.rmLoggerSet . _lcLoggerSet
 
 
-newtype Logger impl
-  = Logger { unLogger :: forall a m. (ToEngineLog a impl, MonadIO m) => a -> m () }
+data Logger impl
+  = Logger
+  { unLogger    :: forall a m. (ToEngineLog a impl, MonadIO m) => a -> m ()
+  , unLoggerSet :: FL.LoggerSet
+  }
 
 mkLogger :: LoggerCtx Hasura -> Logger Hasura
-mkLogger (LoggerCtx loggerSet serverLogLevel timeGetter enabledLogTypes) = Logger $ \l -> do
+mkLogger (LoggerCtx loggerSet serverLogLevel timeGetter enabledLogTypes) = Logger (\l -> do
   localTime <- liftIO timeGetter
   let (logLevel, logTy, logDet) = toEngineLog l
   when (logLevel >= serverLogLevel && isLogTypeEnabled enabledLogTypes logTy) $
-    liftIO $ FL.pushLogStrLn loggerSet $ FL.toLogStr (J.encode $ EngineLog localTime logLevel logTy logDet)
+    liftIO $ FL.pushLogStrLn loggerSet $ FL.toLogStr (J.encode $ EngineLog localTime logLevel logTy logDet))
+  loggerSet
 
 eventTriggerLogType :: EngineLogType Hasura
 eventTriggerLogType = ELTInternal ILTEventTrigger

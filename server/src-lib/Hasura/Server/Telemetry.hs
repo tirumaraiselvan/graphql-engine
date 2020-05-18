@@ -121,7 +121,7 @@ runTelemetry
   -> InstanceId
   -> PGVersion
   -> IO void
-runTelemetry (Logger logger) manager getSchemaCache dbId instanceId pgVersion = do
+runTelemetry (Logger logger _) manager getSchemaCache dbId instanceId pgVersion = do
   let options = wreqOptions manager []
   forever $ do
     schemaCache <- getSchemaCache
