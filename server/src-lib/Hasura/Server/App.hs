@@ -253,6 +253,7 @@ mkSpockAction
   -> APIHandler (Tracing.TraceT m) a
   -> Spock.ActionT m ()
 mkSpockAction serverCtx qErrEncoder qErrModifier apiHandler = do
+    L.unLogger logger (HttpDebugLog "incoming_request" (object ["request_id" .= String "TBA"]))
     req <- Spock.request
     -- Bytes are actually read from the socket here. Time this.
     (ioWaitTime, reqBody) <- withElapsedTime $ liftIO $ Wai.strictRequestBody req
@@ -276,7 +277,8 @@ mkSpockAction serverCtx qErrEncoder qErrModifier apiHandler = do
           (fromString (B8.unpack pathInfo))
 
     requestId <- getRequestId headers    
-    
+    L.unLogger logger (HttpDebugLog "incoming_request" (object ["request_id" .= requestId]))
+
     mapActionT runTraceT $ do
       -- Add the request ID to the tracing metadata so that we
       -- can correlate requests and traces

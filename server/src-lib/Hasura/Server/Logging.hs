@@ -8,6 +8,7 @@ module Hasura.Server.Logging
   , mkHttpErrorLogContext
   , mkHttpLog
   , HttpInfoLog(..)
+  , HttpDebugLog(..)
   , OperationLog(..)
   , HttpLogContext(..)
   , WebHookLog(..)
@@ -33,6 +34,22 @@ import           Hasura.Server.Compression
 import           Hasura.Server.Utils
 import           Hasura.Session
 import           Hasura.Tracing            (TraceT)
+
+data HttpDebugLog
+  = HttpDebugLog
+  { httpDebugKind :: !T.Text
+  , httpDebugInfo :: !Value
+  } deriving (Show, Eq)
+
+instance ToJSON HttpDebugLog where
+  toJSON (HttpDebugLog k info) =
+    object [ "kind" .= k
+           , "info" .= info
+           ]
+
+instance ToEngineLog HttpDebugLog Hasura where
+  toEngineLog httpDebugLog =
+    (LevelDebug, ELTHttpLog , toJSON httpDebugLog)
 
 data StartupLog
   = StartupLog
